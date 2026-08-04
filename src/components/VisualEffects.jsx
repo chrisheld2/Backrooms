@@ -103,6 +103,10 @@ export default function VisualEffects({ settings }) {
     composer.addPass(new RenderPass(scene, camera));
     const ssao = new SSAOPass(scene, camera, size.width, size.height, 32);
     ssao.output = SSAOPass.OUTPUT.Default;
+    // The pass renders the scene with a normal-override material to derive
+    // view-space normals. That material honors scene fog by default, which
+    // tints the normal buffer and corrupts the AO calculation — disable it.
+    ssao.normalMaterial.fog = false;
     ssao.enabled = false;
     composer.addPass(ssao);
     const bloom = new UnrealBloomPass(new THREE.Vector2(size.width, size.height), 0, 0.45, 0.2);
@@ -124,7 +128,13 @@ export default function VisualEffects({ settings }) {
     bloom.enabled = settings.bloom > 0;
     const ssaoAmount = settings.ssao ?? 0;
     ssao.enabled = ssaoAmount > 0;
-    ssao.kernelRadius = 2 + ssaoAmount * 30;
+    // Radius is in world units; the maze walls are ~3 units tall, so a sub-unit
+    // to ~2-unit radius is what actually catches corner/edge occlusion. Larger
+    // radii project samples onto distant geometry or sky and the depth delta
+    // falls outside maxDistance, producing no visible AO.
+    ssao.kernelRadius = 0.15 + ssaoAmount * 2.0;
+    ssao.minDistance = 0.001;
+    ssao.maxDistance = 0.05;
     Object.entries(settings).forEach(([key, value]) => {
       if (pass.uniforms[key]) pass.uniforms[key].value = typeof value === 'boolean' ? (value ? 1 : 0) : value;
     });
