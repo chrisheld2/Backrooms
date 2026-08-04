@@ -89,6 +89,7 @@ export default function Overlays({ onRequestLock }) {
 }
 
 const EFFECTS = [
+  ['ssao', 'SSAO'],
   ['bloom', 'Bloom'], ['vignette', 'Vignette'], ['grain', 'Film grain'], ['scanlines', 'Scanlines'],
   ['chromaticAberration', 'Chromatic aberration'], ['pixelation', 'Pixelation'], ['blur', 'Blur'],
   ['saturation', 'Saturation'], ['contrast', 'Contrast'], ['grayscale', 'Grayscale'], ['sepia', 'Sepia'], ['invert', 'Invert'],

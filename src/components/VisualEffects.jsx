@@ -6,6 +6,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 
 const shader = {
   uniforms: {
@@ -97,15 +98,19 @@ const shader = {
 /** Composer-managed scene effects. Settings are updated live without recreating GPU resources. */
 export default function VisualEffects({ settings }) {
   const { gl, scene, camera, size } = useThree();
-  const { composer, bloom, pass } = useMemo(() => {
+  const { composer, bloom, ssao, pass } = useMemo(() => {
     const composer = new EffectComposer(gl);
     composer.addPass(new RenderPass(scene, camera));
+    const ssao = new SSAOPass(scene, camera, size.width, size.height, 32);
+    ssao.output = SSAOPass.OUTPUT.Default;
+    ssao.enabled = false;
+    composer.addPass(ssao);
     const bloom = new UnrealBloomPass(new THREE.Vector2(size.width, size.height), 0, 0.45, 0.2);
     composer.addPass(bloom);
     const pass = new ShaderPass(shader);
     composer.addPass(pass);
     composer.addPass(new OutputPass());
-    return { composer, bloom, pass };
+    return { composer, bloom, ssao, pass };
   }, [gl, scene, camera]);
 
   useEffect(() => {
@@ -117,6 +122,9 @@ export default function VisualEffects({ settings }) {
   useFrame((_, delta) => {
     bloom.strength = settings.bloom;
     bloom.enabled = settings.bloom > 0;
+    const ssaoAmount = settings.ssao ?? 0;
+    ssao.enabled = ssaoAmount > 0;
+    ssao.kernelRadius = 2 + ssaoAmount * 30;
     Object.entries(settings).forEach(([key, value]) => {
       if (pass.uniforms[key]) pass.uniforms[key].value = typeof value === 'boolean' ? (value ? 1 : 0) : value;
     });

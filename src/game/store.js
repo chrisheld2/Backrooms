@@ -3,6 +3,7 @@ import { create } from 'zustand';
 const SETTINGS_KEY = 'backrooms-settings';
 
 export const DEFAULT_VISUAL_EFFECTS = {
+  ssao: 0,
   bloom: 0.25,
   vignette: 0.35,
   grain: 0.08,
