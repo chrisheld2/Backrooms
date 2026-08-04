@@ -15,6 +15,9 @@ export const DEFAULT_VISUAL_EFFECTS = {
   grayscale: 0,
   sepia: 0,
   invert: 0,
+  analogVCR: 0,
+  vcrJitter: 0.5,
+  vcrTear: 0.3,
 };
 
 function readSettings() {

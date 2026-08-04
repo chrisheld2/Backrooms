@@ -93,11 +93,19 @@ const EFFECTS = [
   ['chromaticAberration', 'Chromatic aberration'], ['pixelation', 'Pixelation'], ['blur', 'Blur'],
   ['saturation', 'Saturation'], ['contrast', 'Contrast'], ['grayscale', 'Grayscale'], ['sepia', 'Sepia'], ['invert', 'Invert'],
 ];
+const VCR_EFFECTS = [
+  ['analogVCR', 'Analog VCR'], ['vcrJitter', 'Horizontal jitter'], ['vcrTear', 'Tear frequency'],
+];
 
 function VisualEffectsPanel({ settings, onChange, onReset }) {
   return <div className="effects-panel" role="tabpanel">
     <p className="effects-note">Changes apply immediately and are saved automatically.</p>
     <div className="effects-grid">{EFFECTS.map(([key, label]) => <label key={key} className="effect-control">
+      <span>{label}</span><output>{Math.round(settings[key] * 100)}%</output>
+      <input type="range" min="0" max="1" step="0.01" value={settings[key]} onChange={(event) => onChange(key, Number(event.target.value))} />
+    </label>)}</div>
+    <h4 className="effects-section-title">Analog VCR</h4>
+    <div className="effects-grid">{VCR_EFFECTS.map(([key, label]) => <label key={key} className="effect-control">
       <span>{label}</span><output>{Math.round(settings[key] * 100)}%</output>
       <input type="range" min="0" max="1" step="0.01" value={settings[key]} onChange={(event) => onChange(key, Number(event.target.value))} />
     </label>)}</div>
