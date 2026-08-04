@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { HZ_HUD, STAMINA_MAX, BATTERY_MAX } from '../game/config.js';
 import { player, entity, world } from '../game/runtime.js';
+import { useGame } from '../game/store.js';
 
 /**
  * DOM HUD. Reads the simulation on a timer and writes to DOM nodes through
@@ -12,8 +13,12 @@ import { player, entity, world } from '../game/runtime.js';
  * the whole overlay tree through diffing while the render loop is trying to
  * hit frame budget. A setInterval writing `textContent` and `style.width` is
  * strictly cheaper and visually identical.
+ *
+ * The interval only runs while a run is active; when paused or in a menu there
+ * is nothing to sample and the timer is idle.
  */
 export default function Hud() {
+  const phase = useGame((s) => s.phase);
   const timerRef = useRef(null);
   const foundRef = useRef(null);
   const staminaRef = useRef(null);
@@ -23,6 +28,7 @@ export default function Hud() {
   const warnRef = useRef(null);
 
   useEffect(() => {
+    if (phase !== 'playing') return;
     const id = setInterval(() => {
       const t = world.elapsed;
       if (timerRef.current) {
@@ -57,7 +63,7 @@ export default function Hud() {
     }, 1000 / HZ_HUD);
 
     return () => clearInterval(id);
-  }, []);
+  }, [phase]);
 
   return (
     <div className="hud">

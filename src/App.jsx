@@ -80,7 +80,7 @@ export default function App() {
       <Canvas
         ref={canvasRef}
         dpr={[DPR_MIN, DPR_MAX]}
-        frameloop="always"
+        frameloop={playing ? 'always' : 'never'}
         shadows={false}
         gl={{
           antialias: false, // fog + a matte palette hide aliasing; MSAA is not worth the bandwidth
