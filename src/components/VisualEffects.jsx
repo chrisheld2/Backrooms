@@ -13,11 +13,12 @@ const shader = {
     vignette: { value: 0 }, grain: { value: 0 }, scanlines: { value: 0 }, chromaticAberration: { value: 0 },
     pixelation: { value: 0 }, blur: { value: 0 }, saturation: { value: 0 }, contrast: { value: 0 },
     grayscale: { value: 0 }, sepia: { value: 0 }, invert: { value: 0 },
-    analogVCR: { value: 0 }, vcrJitter: { value: 0 }, vcrTear: { value: 0 },
+    analogVCR: { value: 0 }, vcrJitter: { value: 0 }, vcrTear: { value: 0 }, vcrDynamic: { value: 0 },
   },
   vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
   fragmentShader: `
     uniform sampler2D tDiffuse; uniform float time, vignette, grain, scanlines, chromaticAberration, pixelation, blur, saturation, contrast, grayscale, sepia, invert, analogVCR, vcrJitter, vcrTear;
+    uniform float vcrDynamic;
     uniform vec2 resolution; varying vec2 vUv;
     float rand(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     float noise(vec2 p) { return rand(floor(p)); }
@@ -26,29 +27,40 @@ const shader = {
       if (pixelation > 0.0) { float size = mix(1.0, 12.0, pixelation); uv = (floor(uv * resolution / size) * size + size * .5) / resolution; }
 
       // --- Analog VCR: horizontal jitter + tearing + chromatic split ----------
+      // Dynamic mode drifts the effective intensity/jitter/tear with slow,
+      // out-of-phase sines so the tape feel breathes instead of looking fixed.
+      float vcrAmt = analogVCR;
+      float jitAmt = vcrJitter;
+      float tearAmt = vcrTear;
+      if (vcrDynamic > 0.5 && analogVCR > 0.0) {
+        float t = time;
+        vcrAmt = analogVCR * (0.55 + 0.45 * (0.5 + 0.5 * sin(t * 0.31)));
+        jitAmt = vcrJitter * (0.4 + 0.6 * (0.5 + 0.5 * sin(t * 0.73 + 1.7)));
+        tearAmt = vcrTear * (0.3 + 0.7 * (0.5 + 0.5 * sin(t * 0.21 + 3.1)));
+      }
       float vcrJit = 0.0;
       float vcrTearOff = 0.0;
       float vcrBand = 0.0;
-      if (analogVCR > 0.0) {
+      if (vcrAmt > 0.0) {
         float line = floor(uv.y * resolution.y);
         // Per-line horizontal jitter: a stable-per-line random offset, refreshed
         // a few times per second so the striping shimmers rather than freezing.
         float jitSeed = floor(time * 18.0);
-        vcrJit = (rand(vec2(line, jitSeed)) - .5) * 0.04 * vcrJitter * analogVCR;
+        vcrJit = (rand(vec2(line, jitSeed)) - .5) * 0.04 * jitAmt * vcrAmt;
         // Tearing: a horizontal band whose vertical position drifts over time.
-        // Higher vcrTear = more frequent tear events per second.
-        float tearRate = max(0.1, vcrTear * 6.0);
+        // Higher tearAmt = more frequent tear events per second.
+        float tearRate = max(0.1, tearAmt * 6.0);
         float tearPhase = fract(time * tearRate);
         float tearY = fract(sin(floor(time * tearRate) * 12.9898) * 0.5);
         float bandHalf = 0.02 + 0.03 * rand(vec2(floor(time * tearRate)));
         float dist = abs(uv.y - tearY);
         vcrBand = smoothstep(bandHalf, 0.0, dist);
-        vcrTearOff = vcrBand * (rand(vec2(line, floor(time * tearRate))) - .5) * 0.12 * analogVCR;
+        vcrTearOff = vcrBand * (rand(vec2(line, floor(time * tearRate))) - .5) * 0.12 * vcrAmt;
       }
       vec2 vcrOffset = vec2(vcrJit + vcrTearOff, 0.0);
 
       vec2 b = vec2(blur / resolution.x, blur / resolution.y);
-      float ca = chromaticAberration + analogVCR * 0.0025;
+      float ca = chromaticAberration + vcrAmt * 0.0025;
       vec2 c = vec2(ca / resolution.x, ca / resolution.y);
       vec3 color = vec3(
         texture2D(tDiffuse, uv + vcrOffset - c).r,
@@ -65,18 +77,18 @@ const shader = {
       float edge = distance(uv, vec2(.5)) * 1.414;
       color *= 1.0 - vignette * smoothstep(.35, 1.0, edge);
       color += (rand(uv + fract(time)) - .5) * grain;
-      float sl = scanlines + analogVCR * 0.35;
+      float sl = scanlines + vcrAmt * 0.35;
       color *= 1.0 - sl * (.5 + .5 * sin(uv.y * resolution.y * 1.5));
-      if (analogVCR > 0.0) {
+      if (vcrAmt > 0.0) {
         // VHS color bleed: smear red a touch downward, lift blue slightly.
-        color.r = mix(color.r, texture2D(tDiffuse, uv + vcrOffset + vec2(0.0, 1.5 / resolution.y)).r, 0.35 * analogVCR);
-        color.b += 0.02 * analogVCR;
+        color.r = mix(color.r, texture2D(tDiffuse, uv + vcrOffset + vec2(0.0, 1.5 / resolution.y)).r, 0.35 * vcrAmt);
+        color.b += 0.02 * vcrAmt;
         // Tear band brightness flicker.
-        color += vcrBand * 0.08 * analogVCR * (rand(vec2(floor(time * 30.0))) - .5);
+        color += vcrBand * 0.08 * vcrAmt * (rand(vec2(floor(time * 30.0))) - .5);
         // Extra coarse grain inside the effect.
-        color += (noise(uv * vec2(2.0, 1.0) + floor(time * 24.0)) - .5) * 0.12 * analogVCR;
+        color += (noise(uv * vec2(2.0, 1.0) + floor(time * 24.0)) - .5) * 0.12 * vcrAmt;
         // Slight green/amber cast for that aged-tape look.
-        color = mix(color, color * vec3(1.05, 1.02, 0.92), analogVCR);
+        color = mix(color, color * vec3(1.05, 1.02, 0.92), vcrAmt);
       }
       gl_FragColor = vec4(color, 1.0);
     }`,
@@ -106,7 +118,7 @@ export default function VisualEffects({ settings }) {
     bloom.strength = settings.bloom;
     bloom.enabled = settings.bloom > 0;
     Object.entries(settings).forEach(([key, value]) => {
-      if (pass.uniforms[key]) pass.uniforms[key].value = value;
+      if (pass.uniforms[key]) pass.uniforms[key].value = typeof value === 'boolean' ? (value ? 1 : 0) : value;
     });
     pass.uniforms.time.value += delta;
     composer.render(delta);

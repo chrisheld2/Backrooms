@@ -18,6 +18,7 @@ export const DEFAULT_VISUAL_EFFECTS = {
   analogVCR: 0,
   vcrJitter: 0.5,
   vcrTear: 0.3,
+  vcrDynamic: false,
 };
 
 function readSettings() {

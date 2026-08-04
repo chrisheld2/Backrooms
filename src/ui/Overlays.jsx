@@ -105,6 +105,10 @@ function VisualEffectsPanel({ settings, onChange, onReset }) {
       <input type="range" min="0" max="1" step="0.01" value={settings[key]} onChange={(event) => onChange(key, Number(event.target.value))} />
     </label>)}</div>
     <h4 className="effects-section-title">Analog VCR</h4>
+    <label className="effect-control effect-toggle">
+      <span>Dynamic variation</span>
+      <input type="checkbox" checked={settings.vcrDynamic} onChange={(event) => onChange('vcrDynamic', event.target.checked)} />
+    </label>
     <div className="effects-grid">{VCR_EFFECTS.map(([key, label]) => <label key={key} className="effect-control">
       <span>{label}</span><output>{Math.round(settings[key] * 100)}%</output>
       <input type="range" min="0" max="1" step="0.01" value={settings[key]} onChange={(event) => onChange(key, Number(event.target.value))} />
