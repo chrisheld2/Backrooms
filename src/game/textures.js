@@ -78,13 +78,13 @@ let _carpetTextureCache = null;
 // the splotch pattern repeats at a longer period than the base wallpaper,
 // hiding the tiling.
 const WALL_GRIME = [
-  { count: 14, color: 'rgba(74, 82, 58, 0.18)', maxR: 42 }, // greenish mildew
-  { count: 9, color: 'rgba(92, 86, 64, 0.16)', maxR: 30 },  // brownish damp
-  { count: 5, color: 'rgba(38, 36, 26, 0.20)', maxR: 55 },  // dark water mark
+  { count: 1, color: 'rgba(74, 82, 58, 0.18)', maxR: 42 }, // greenish mildew
+  { count: 1, color: 'rgba(92, 86, 64, 0.16)', maxR: 30 },  // brownish damp
+  { count: 1, color: 'rgba(38, 36, 26, 0.20)', maxR: 55 },  // dark water mark
 ];
 const FLOOR_GRIME = [
-  { count: 6, color: 'rgba(50, 46, 28, 0.22)', maxR: 60 },  // dark damp stain
-  { count: 3, color: 'rgba(68, 74, 52, 0.16)', maxR: 38 },  // greenish mildew
+  { count: 1, color: 'rgba(50, 46, 28, 0.22)', maxR: 60 },  // dark damp stain
+  { count: 0, color: 'rgba(68, 74, 52, 0.16)', maxR: 38 },  // greenish mildew
 ];
 
 /**
