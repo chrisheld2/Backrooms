@@ -143,7 +143,7 @@ function buildCompositedTexture(imageUrl, aniso, atlasN, grimeRecipes, grimeSeed
 function buildWallpaper(aniso) {
   if (_wallpaperTextureCache) return _wallpaperTextureCache;
   _wallpaperTextureCache = buildCompositedTexture(
-    wallpaperImage, aniso, 2, WALL_GRIME, 0x8a17, 12,
+    wallpaperImage, aniso, 4, WALL_GRIME, 0x8a17, 12,
   );
   return _wallpaperTextureCache;
 }
@@ -151,7 +151,7 @@ function buildWallpaper(aniso) {
 function buildCarpetImage(aniso) {
   if (_carpetTextureCache) return _carpetTextureCache;
   _carpetTextureCache = buildCompositedTexture(
-    carpetImage, aniso, 2, FLOOR_GRIME, 0x3c41, 16,
+    carpetImage, aniso, 4, FLOOR_GRIME, 0x3c41, 16,
   );
   return _carpetTextureCache;
 }
