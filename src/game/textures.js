@@ -73,63 +73,87 @@ function stains(ctx, rng, count, color, maxR, w = SIZE, h = SIZE, ox = 0, oy = 0
 let _wallpaperTextureCache = null;
 let _carpetTextureCache = null;
 
+// Mildew / damp discoloration recipes. Kept faint so the grime reads as
+// weathering, not a stamp. Scattered across an atlasN x atlasN tile grid so
+// the splotch pattern repeats at a longer period than the base wallpaper,
+// hiding the tiling.
+const WALL_GRIME = [
+  { count: 14, color: 'rgba(74, 82, 58, 0.18)', maxR: 42 }, // greenish mildew
+  { count: 9, color: 'rgba(92, 86, 64, 0.16)', maxR: 30 },  // brownish damp
+  { count: 5, color: 'rgba(38, 36, 26, 0.20)', maxR: 55 },  // dark water mark
+];
+const FLOOR_GRIME = [
+  { count: 6, color: 'rgba(50, 46, 28, 0.22)', maxR: 60 },  // dark damp stain
+  { count: 3, color: 'rgba(68, 74, 52, 0.16)', maxR: 38 },  // greenish mildew
+];
+
+/**
+ * Loads a tileable source image, tiles it atlasN x atlasN into one canvas,
+ * bakes faint mildew splotches + grain over the whole canvas, and returns it
+ * as a repeating CanvasTexture. repeat is set to 1/atlasN so the base pattern
+ * keeps its original world-space density while the grime only cycles every
+ * atlasN tiles — the two periods misalign, which breaks up the stamp look.
+ *
+ * One texture, one draw call, zero per-frame cost: all work is at load time.
+ */
+function buildCompositedTexture(imageUrl, aniso, atlasN, grimeRecipes, grimeSeed, grainAmount) {
+  const canvas = document.createElement('canvas');
+  canvas.width = SIZE * atlasN;
+  canvas.height = SIZE * atlasN;
+  const ctx = canvas.getContext('2d');
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1 / atlasN, 1 / atlasN);
+  tex.anisotropy = aniso;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.generateMipmaps = true;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    const tw = img.naturalWidth || SIZE;
+    const th = img.naturalHeight || SIZE;
+    if (canvas.width !== tw * atlasN || canvas.height !== th * atlasN) {
+      canvas.width = tw * atlasN;
+      canvas.height = th * atlasN;
+    }
+    for (let y = 0; y < atlasN; y++) {
+      for (let x = 0; x < atlasN; x++) {
+        ctx.drawImage(img, x * tw, y * th, tw, th);
+      }
+    }
+    const rng = makeRng(grimeSeed);
+    const w = canvas.width;
+    const h = canvas.height;
+    for (const recipe of grimeRecipes) {
+      stains(ctx, rng, recipe.count, recipe.color, recipe.maxR, w, h);
+    }
+    grain(ctx, grainAmount, rng, w, h);
+    tex.needsUpdate = true;
+  };
+  img.src = imageUrl;
+
+  return tex;
+}
+
 function buildWallpaper(aniso) {
   if (_wallpaperTextureCache) return _wallpaperTextureCache;
-
-  const loader = new THREE.TextureLoader();
-  const texture = loader.load(wallpaperImage);
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(1, 1);
-  texture.anisotropy = aniso;
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.generateMipmaps = true;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
-  texture.magFilter = THREE.LinearFilter;
-
-  _wallpaperTextureCache = texture;
-  return texture;
+  _wallpaperTextureCache = buildCompositedTexture(
+    wallpaperImage, aniso, 2, WALL_GRIME, 0x8a17, 12,
+  );
+  return _wallpaperTextureCache;
 }
 
 function buildCarpetImage(aniso) {
   if (_carpetTextureCache) return _carpetTextureCache;
-
-  const loader = new THREE.TextureLoader();
-  const texture = loader.load(carpetImage);
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(1, 1);
-  texture.anisotropy = aniso;
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.generateMipmaps = true;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
-  texture.magFilter = THREE.LinearFilter;
-
-  _carpetTextureCache = texture;
-  return texture;
-}
-
-function buildCarpet(rng) {
-  const ctx = canvas2d();
-  ctx.fillStyle = '#8d7c3d';
-  ctx.fillRect(0, 0, SIZE, SIZE);
-
-  // Loop-pile speckle: short random strokes, not per-pixel noise, so it still
-  // reads as carpet after mipmapping down.
-  for (let i = 0; i < 5200; i++) {
-    const x = rng() * SIZE;
-    const y = rng() * SIZE;
-    const l = 1 + rng() * 3;
-    ctx.strokeStyle = rng() > 0.5 ? 'rgba(120,106,52,0.55)' : 'rgba(70,60,26,0.45)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + l, y + l * 0.4);
-    ctx.stroke();
-  }
-  stains(ctx, rng, 18, 'rgba(48,38,14,0.32)', 60);
-  grain(ctx, 20, rng);
-  return ctx;
+  _carpetTextureCache = buildCompositedTexture(
+    carpetImage, aniso, 2, FLOOR_GRIME, 0x3c41, 16,
+  );
+  return _carpetTextureCache;
 }
 
 /**
