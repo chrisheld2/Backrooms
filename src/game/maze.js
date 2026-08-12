@@ -1,11 +1,23 @@
 import {
   GRID_W, GRID_H, CELL_COUNT, CELL, RISE,
-  Z_LOWER, Z_MAIN, Z_UPPER, ZONE_FLOOR_HU, ZONE_HEADROOM,
-  SPLIT_HU, STAIR_RISE_HU, RAMP_RISE_HU, HEADROOM_SLOPE, RAMP_HEADROOM,
+  Z_LOWER, Z_MAIN, Z_UPPER, ZONE_FLOOR_HU,
+  SPLIT_HU, STAIR_RISE_HU, RAMP_RISE_HU,
   STEP_UP_HU, MAX_DROP_HU, MAX_FLOOR_HU, PROP_SPARSITY, PROP_MIN_SEP,
-  DOOR_CHANCE, DOOR_LOCKED_RATIO,
+  DOOR_CHANCE, DOOR_LOCKED_RATIO, CEILING_PROFILES,
   cellToWorldX, cellToWorldZ,
 } from './config.js';
+import {
+  DIR_PX, DIR_NX, DIR_PZ, DIR_NZ, DIR_OFF, DIR_OPP, DIR_DX, DIR_DY,
+  sameRow, cornerHu, edgeHu, CONN_FLAT, CONN_STAIR, CONN_RAMP,
+} from './grid.js';
+import { buildCeiling, CEIL_KIND_CHOKE, CEIL_KIND_SHAFT, CEIL_KIND_PLENUM } from './ceiling.js';
+
+// Re-exported so every existing consumer keeps importing its cell-space
+// vocabulary from here; grid.js is a layering detail, not a new public surface.
+export {
+  DIR_PX, DIR_NX, DIR_PZ, DIR_NZ, DIR_OFF, DIR_OPP, DIR_DX, DIR_DY,
+  sameRow, cornerHu, edgeHu, CONN_FLAT, CONN_STAIR, CONN_RAMP,
+};
 
 /**
  * Level 0 layout generator — a three-stratum, non-linear building.
@@ -21,8 +33,10 @@ import {
  *   slopeRise  Uint8   hu climbed across the cell (0 when flat)
  *   conn       Uint8   CONN_FLAT | CONN_STAIR | CONN_RAMP
  *   zone       Uint8   Z_LOWER | Z_MAIN | Z_UPPER
- *   headroom   Float32 clear height above this cell's own floor
  *   pass       Uint8   4-bit mask: bit (dir-1) set => you may step that way
+ *
+ * The ceiling is a separate concern and lives in ceiling.js, which decorates
+ * the level with its own arrays once the plan is final.
  *
  * Generation order matters and is load-bearing:
  *
@@ -35,7 +49,8 @@ import {
  *   7  add stairs that climb into blank walls
  *   8  prune to the strongly connected component around spawn
  *   9  hang doors, 85% of them locked; carve closets behind the rest
- *  10  scatter isolated props
+ *  10  build the ceiling zones over the finished plan
+ *  11  scatter isolated props, columns and pipework
  *
  * Step 8 is what makes one-way drops safe: a cell survives only if the player
  * can reach it from spawn AND get back, so a drop always has a staircase
@@ -46,27 +61,18 @@ import {
  * deliberate. Nothing in this file may be called from a frame loop.
  */
 
-// ---- Direction encoding -----------------------------------------------------
-export const DIR_PX = 1;
-export const DIR_NX = 2;
-export const DIR_PZ = 3;
-export const DIR_NZ = 4;
-
-/** Cell-index delta for each direction. Index 0 is unused padding. */
-export const DIR_OFF = [0, 1, -1, GRID_W, -GRID_W];
-export const DIR_OPP = [0, DIR_NX, DIR_PX, DIR_NZ, DIR_PZ];
-export const DIR_DX = [0, 1, -1, 0, 0];
-export const DIR_DY = [0, 0, 0, 1, -1];
 /** The two directions perpendicular to each direction. */
 const DIR_PERP = [[], [DIR_PZ, DIR_NZ], [DIR_PZ, DIR_NZ], [DIR_PX, DIR_NX], [DIR_PX, DIR_NX]];
-
-export const CONN_FLAT = 0;
-export const CONN_STAIR = 1;
-export const CONN_RAMP = 2;
 
 export const PROP_CHAIR = 0;
 export const PROP_DESK = 1;
 export const PROP_CABINET = 2;
+export const PROP_PILLAR = 3;
+
+/** Ceiling-hung services. Non-colliding — see hangFixtures. */
+export const FIX_PIPE = 0;
+export const FIX_CONDUIT = 1;
+export const FIX_JOIST = 2;
 
 /** Deterministic 32-bit PRNG (mulberry32). Seeded runs => reproducible levels. */
 export function makeRng(seed) {
@@ -82,37 +88,19 @@ export function makeRng(seed) {
 export const idx = (cx, cy) => cy * GRID_W + cx;
 
 /**
- * Floor elevation, in hu, at the edge of `cell` facing `dir`.
- *
- * This is the join primitive the whole vertical system rests on: two cells
- * connect cleanly iff the edge heights they present to each other match. A
- * stair's treads and its landing agree exactly because both sides evaluate to
- * the same integer, not because they landed within some tolerance.
- */
-export function edgeHu(heights, slopeDir, slopeRise, cell, dir) {
-  const rise = slopeRise[cell];
-  const base = heights[cell];
-  if (rise === 0) return base;
-  const up = slopeDir[cell];
-  if (dir === up) return base + rise;
-  if (dir === DIR_OPP[up]) return base;
-  return base + (rise >> 1); // crossing a slope sideways: meet it mid-cell
-}
-
-/**
  * @returns {object} level, or null if the layout collapsed and should be retried
  */
-export function generateLevel(seed) {
+export function generateLevel(seed, levelId = 0) {
   for (let attempt = 0; attempt < 5; attempt++) {
-    const lvl = buildLayout((seed + attempt * 0x9e3779b1) >>> 0, false);
+    const lvl = buildLayout((seed + attempt * 0x9e3779b1) >>> 0, levelId, false);
     if (lvl) return lvl;
   }
   // Every attempt produced a fragmented plan. Take the last one regardless —
   // the SCC prune still guarantees it is playable, just smaller than intended.
-  return buildLayout(seed >>> 0, true);
+  return buildLayout(seed >>> 0, levelId, true);
 }
 
-function buildLayout(seed, force) {
+function buildLayout(seed, levelId, force) {
   const rng = makeRng(seed);
   const grid = new Uint8Array(CELL_COUNT).fill(1);
 
@@ -159,7 +147,7 @@ function buildLayout(seed, force) {
     }
   }
 
-  // --- 3. Blow out open rooms.
+  // --- 3. Blow out open rooms (rectilinear).
   for (let r = 0; r < 16; r++) {
     const w = 3 + ((rng() * 6) | 0);
     const h = 3 + ((rng() * 6) | 0);
@@ -169,6 +157,13 @@ function buildLayout(seed, force) {
       for (let x = ox; x < ox + w; x++) grid[idx(x, y)] = 0;
     }
   }
+
+  // --- 3b. Circular chambers and a few noise-blob rooms.
+  // These are the level's curved wall sources: geometry emits arc shells on
+  // their perimeters instead of (or in addition to) faceted grid walls.
+  const profile = CEILING_PROFILES[levelId] || CEILING_PROFILES[0];
+  const circleRooms = carveCircleRooms(grid, rng, profile);
+  carveBlobRooms(grid, rng);
 
   // --- 4. Scatter freestanding pillars/stubs back in for visual noise.
   for (let cy = 2; cy < GRID_H - 2; cy++) {
@@ -254,23 +249,136 @@ function buildLayout(seed, force) {
   openCells = collectOpen(grid);
   pass = buildPassMask(grid, heights, slopeDir, slopeRise);
 
-  // --- 11. Headroom per cell: strata differ, connector shafts are tighter.
-  const headroom = new Float32Array(CELL_COUNT);
-  for (let i = 0; i < openCells.length; i++) {
-    const c = openCells[i];
-    headroom[c] = conn[c] === CONN_RAMP ? RAMP_HEADROOM
-      : conn[c] === CONN_STAIR ? HEADROOM_SLOPE
-        : ZONE_HEADROOM[zone[c]];
-  }
+  // Rebuild circle membership against the pruned plan: a circle only ships if
+  // enough of its interior survived connectivity (otherwise skip its arcs).
+  const liveCircles = filterLiveCircles(grid, circleRooms);
 
-  // --- 12. Sparse dressing.
-  const props = scatterProps(grid, heights, conn, zone, closet, openCells, spawn, rng);
-
-  return {
+  const lvl = {
     grid, openCells, spawn, rng,
-    heights, slopeDir, slopeRise, conn, zone, headroom, pass,
-    district, region, closet, connectors, doors, props,
+    heights, slopeDir, slopeRise, conn, zone, pass,
+    district, districtCount, region, closet, connectors, doors,
+    circleRooms: liveCircles,
+    filletChance: profile.filletChance ?? 0.5,
   };
+
+  // --- 11. Section: the ceiling, which is where most of this level's spatial
+  // variation now lives. Needs the finished plan (zones, connectors, degree of
+  // every cell), so it runs last.
+  buildCeiling(lvl, levelId, rng, seed);
+
+  // --- 12. Sparse dressing. Pillars and pipework are placed against the
+  // ceiling zones, so this follows the section rather than preceding it.
+  lvl.props = scatterProps(lvl, spawn, rng);
+  lvl.fixtures = hangFixtures(lvl, rng);
+
+  return lvl;
+}
+
+// ---------------------------------------------------------------------------
+// Organic / curved plan features
+// ---------------------------------------------------------------------------
+
+/**
+ * Carve circular chambers into the floor plan.
+ * Stored as world-space centres + radii so geometry can emit true arcs.
+ */
+function carveCircleRooms(grid, rng, profile) {
+  const rooms = [];
+  const count = randPair(rng, profile.circleRooms || [2, 3]);
+  const radPair = profile.circleRadius || [3, 5];
+  let guard = 0;
+  while (rooms.length < count && guard++ < 200) {
+    const rCells = randPair(rng, radPair);
+    const cx = rCells + 1 + ((rng() * (GRID_W - 2 * rCells - 2)) | 0);
+    const cy = rCells + 1 + ((rng() * (GRID_H - 2 * rCells - 2)) | 0);
+    // Reject overlap with an existing chamber (keeps arcs readable).
+    let ok = true;
+    for (let i = 0; i < rooms.length; i++) {
+      const o = rooms[i];
+      const dx = cx - o.cx;
+      const dy = cy - o.cy;
+      if (dx * dx + dy * dy < (rCells + o.rCells + 2) * (rCells + o.rCells + 2)) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+
+    for (let y = cy - rCells; y <= cy + rCells; y++) {
+      for (let x = cx - rCells; x <= cx + rCells; x++) {
+        if (x < 1 || y < 1 || x >= GRID_W - 1 || y >= GRID_H - 1) continue;
+        const dx = x - cx;
+        const dy = y - cy;
+        // Slightly fat circle so the interior feels open, not a pixel disc.
+        if (dx * dx + dy * dy <= rCells * rCells + 0.35) grid[idx(x, y)] = 0;
+      }
+    }
+
+    rooms.push({
+      cx,
+      cy,
+      rCells,
+      // World centre of the cell centre; radius to the outer edge of the ring.
+      wx: cellToWorldX(cx),
+      wz: cellToWorldZ(cy),
+      radius: (rCells + 0.5) * CELL,
+    });
+  }
+  return rooms;
+}
+
+/**
+ * Soft irregular clearings via a one-shot noise field. Breaks the endless
+ * orthogrid without introducing collision special cases — still cell solid/open.
+ */
+function carveBlobRooms(grid, rng) {
+  const blobs = 3 + ((rng() * 3) | 0);
+  for (let b = 0; b < blobs; b++) {
+    const r = 3 + ((rng() * 4) | 0);
+    const cx = r + 1 + ((rng() * (GRID_W - 2 * r - 2)) | 0);
+    const cy = r + 1 + ((rng() * (GRID_H - 2 * r - 2)) | 0);
+    // Seeded ellipse axes + a wobble phase; pure scalar math, no tables.
+    const stretch = 0.65 + rng() * 0.7;
+    const phase = rng() * Math.PI * 2;
+    for (let y = cy - r - 1; y <= cy + r + 1; y++) {
+      for (let x = cx - r - 1; x <= cx + r + 1; x++) {
+        if (x < 1 || y < 1 || x >= GRID_W - 1 || y >= GRID_H - 1) continue;
+        const dx = (x - cx) / stretch;
+        const dy = (y - cy) * stretch;
+        const ang = Math.atan2(dy, dx) + phase;
+        const wobble = 1 + 0.22 * Math.sin(ang * 3.0) + 0.12 * Math.sin(ang * 5.0 + phase);
+        const dist = Math.sqrt(dx * dx + dy * dy) / wobble;
+        if (dist <= r) grid[idx(x, y)] = 0;
+      }
+    }
+  }
+}
+
+/** Drop circles whose interior was mostly sealed by the SCC prune. */
+function filterLiveCircles(grid, rooms) {
+  const live = [];
+  for (let i = 0; i < rooms.length; i++) {
+    const room = rooms[i];
+    let open = 0;
+    let total = 0;
+    const r = room.rCells;
+    for (let y = room.cy - r; y <= room.cy + r; y++) {
+      for (let x = room.cx - r; x <= room.cx + r; x++) {
+        if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H) continue;
+        const dx = x - room.cx;
+        const dy = y - room.cy;
+        if (dx * dx + dy * dy > r * r) continue;
+        total++;
+        if (grid[idx(x, y)] === 0) open++;
+      }
+    }
+    if (total > 0 && open / total > 0.55) live.push(room);
+  }
+  return live;
+}
+
+function randPair(rng, pair) {
+  return pair[0] + ((rng() * (pair[1] - pair[0] + 1)) | 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -322,13 +430,6 @@ function partitionDistricts(grid, openCells, rng) {
   // Any cell the BFS never reached (isolated pocket) joins district 0.
   for (let i = 0; i < openCells.length; i++) if (district[openCells[i]] < 0) district[openCells[i]] = 0;
   return { district, districtCount: seeds.length };
-}
-
-/** Guards the ±1 horizontal steps against wrapping across a row boundary. */
-function sameRow(c, n, dir) {
-  if (dir === DIR_PX) return (n % GRID_W) === (c % GRID_W) + 1;
-  if (dir === DIR_NX) return (n % GRID_W) === (c % GRID_W) - 1;
-  return true;
 }
 
 /**
@@ -911,7 +1012,8 @@ function isSealedAlcove(grid, n, dir) {
  * abandoned because of what is missing, and one chair on its side carries more
  * than twenty pieces of furniture would.
  */
-function scatterProps(grid, heights, conn, zone, closet, openCells, spawn, rng) {
+function scatterProps(lvl, spawn, rng) {
+  const { grid, heights, conn, zone, closet, openCells } = lvl;
   const want = (openCells.length / PROP_SPARSITY) | 0;
   const taken = new Uint8Array(CELL_COUNT);
   const at = new Int32Array(CELL_COUNT).fill(-1);
@@ -922,11 +1024,44 @@ function scatterProps(grid, heights, conn, zone, closet, openCells, spawn, rng) 
   const z = [];
   const y = [];
   const rot = [];
+  const scaleY = [];
+
+  // --- Load-bearing columns first: tall voids need something holding them up.
+  // Atriums, galleries and vaults share one bay grid so the vertical negative
+  // space reads as structure, not scatter.
+  const tallPools = [lvl.atriumCells, lvl.galleryCells, lvl.vaultCells];
+  for (let p = 0; p < tallPools.length; p++) {
+    const pool = tallPools[p];
+    if (!pool) continue;
+    for (let i = 0; i < pool.length; i++) {
+      const c = pool[i];
+      const cx = c % GRID_W;
+      const cy = (c / GRID_W) | 0;
+      if (cx % 3 !== 1 || cy % 3 !== 1) continue;
+      if (grid[c] !== 0 || taken[c] || c === spawn) continue;
+      const floorY = heights[c] * RISE;
+      const clear = lvl.ceilLowY[c] - floorY;
+      if (clear < 4) continue; // only where the room is genuinely tall
+
+      taken[c] = 1;
+      at[c] = cell.length;
+      cell.push(c);
+      type.push(PROP_PILLAR);
+      x.push(cellToWorldX(cx));
+      z.push(cellToWorldZ(cy));
+      y.push(floorY);
+      rot.push(0);
+      scaleY.push(clear); // unit-tall geometry, stretched to meet its own ceiling
+    }
+  }
 
   let guard = 0;
-  while (cell.length < want && guard++ < 20000) {
+  const wantTotal = cell.length + want;
+  while (cell.length < wantTotal && guard++ < 20000) {
     const c = openCells[(rng() * openCells.length) | 0];
     if (grid[c] !== 0 || conn[c] !== CONN_FLAT || c === spawn || taken[c]) continue;
+    // Furniture belongs in rooms you can stand up in.
+    if (lvl.ceilKind[c] === CEIL_KIND_CHOKE || lvl.ceilKind[c] === CEIL_KIND_SHAFT) continue;
 
     const cx = c % GRID_W;
     const cy = (c / GRID_W) | 0;
@@ -986,6 +1121,7 @@ function scatterProps(grid, heights, conn, zone, closet, openCells, spawn, rng) 
     z.push(pz);
     y.push(heights[c] * RISE);
     rot.push(yaw);
+    scaleY.push(1);
     void zone;
   }
 
@@ -997,7 +1133,68 @@ function scatterProps(grid, heights, conn, zone, closet, openCells, spawn, rng) 
     z: Float32Array.from(z),
     y: Float32Array.from(y),
     rot: Float32Array.from(rot),
+    scaleY: Float32Array.from(scaleY),
     at,
+  };
+}
+
+/**
+ * Non-colliding services hung off the ceiling: pipe runs under low soffits,
+ * sagging conduit, and the framing left exposed where a ceiling tile is gone.
+ *
+ * These are what stop a height change from reading as an empty box. They are
+ * deliberately excluded from the collision lookup — everything here sits above
+ * head height for whatever posture the cell forces.
+ */
+function hangFixtures(lvl, rng) {
+  const { grid, heights, conn, openCells, ceilKind, ceilLowY } = lvl;
+  const profile = lvl.ceilProfile;
+  const type = [];
+  const x = [];
+  const y = [];
+  const z = [];
+  const rot = [];
+
+  const push = (t, wx, wy, wz, yaw) => { type.push(t); x.push(wx); y.push(wy); z.push(wz); rot.push(yaw); };
+
+  for (let i = 0; i < openCells.length; i++) {
+    const c = openCells[i];
+    if (conn[c] !== CONN_FLAT) continue;
+    const cx = c % GRID_W;
+    const cy = (c / GRID_W) | 0;
+    const wx = cellToWorldX(cx);
+    const wz = cellToWorldZ(cy);
+    const clear = ceilLowY[c] - heights[c] * RISE;
+
+    if (ceilKind[c] === CEIL_KIND_PLENUM) {
+      // Framing across the hole the tile fell out of.
+      push(FIX_JOIST, wx, ceilLowY[c], wz, (cx + cy) & 1 ? Math.PI * 0.5 : 0);
+      if (rng() < 0.45) push(FIX_CONDUIT, wx, ceilLowY[c] - 0.30, wz, rng() * Math.PI);
+      continue;
+    }
+
+    // Pipework tracks the tight runs: the lower the soffit, the more likely.
+    const low = clear < 2.2;
+    if (!low && rng() > profile.pipeChance * 0.25) continue;
+    if (low && rng() > profile.pipeChance) continue;
+
+    // Lie the run along whichever axis the corridor actually runs.
+    const openX = (grid[c + 1] === 0 ? 1 : 0) + (grid[c - 1] === 0 ? 1 : 0);
+    const openZ = (grid[c + GRID_W] === 0 ? 1 : 0) + (grid[c - GRID_W] === 0 ? 1 : 0);
+    if (openX === 0 && openZ === 0) continue;
+    const yaw = openX >= openZ ? 0 : Math.PI * 0.5;
+
+    push(FIX_PIPE, wx, ceilLowY[c] - 0.17, wz, yaw);
+    if (rng() < 0.3) push(FIX_CONDUIT, wx, ceilLowY[c] - 0.34, wz, yaw);
+  }
+
+  return {
+    count: type.length,
+    type: Uint8Array.from(type),
+    x: Float32Array.from(x),
+    y: Float32Array.from(y),
+    z: Float32Array.from(z),
+    rot: Float32Array.from(rot),
   };
 }
 

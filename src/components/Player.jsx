@@ -4,11 +4,11 @@ import {
   EYE_HEIGHT, PLAYER_RADIUS, WALK_SPEED, SPRINT_SPEED, CROUCH_SPEED,
   ACCEL, FRICTION, MOUSE_SENSITIVITY, PITCH_LIMIT,
   STAMINA_MAX, STAMINA_REGEN, BATTERY_MAX,
-  GRAVITY, HARD_LANDING,
+  GRAVITY, HARD_LANDING, STAND_CLEARANCE, HEAD_PAD,
   worldToCellX, worldToCellY, GRID_W,
 } from '../game/config.js';
 import { player, input, bindInput } from '../game/runtime.js';
-import { resolveCircle, hitX, hitZ, floorYAt } from '../game/collision.js';
+import { resolveCircle, hitX, hitZ, floorYAt, ceilYAt } from '../game/collision.js';
 import { footstep } from '../game/audio.js';
 import { useGame } from '../game/store.js';
 
@@ -113,9 +113,14 @@ export default function Player({ level, active }) {
     const wLen = Math.sqrt(wx * wx + wz * wz);
     if (wLen > 0.0001) { wx /= wLen; wz /= wLen; }
 
-    // --- Stamina gates sprinting
-    player.crouching = input.crouch;
-    const wantsSprint = input.sprint && !input.crouch && wLen > 0.0001 && player.stamina > 0.05;
+    // --- Posture. A choke point takes the choice away: under STAND_CLEARANCE
+    // the player is crouched whether they asked to be or not, which is what
+    // makes a low ceiling something you feel rather than something you read.
+    const clearance = ceilYAt(level, player.x, player.z) - player.feetY;
+    player.forcedCrouch = clearance < STAND_CLEARANCE;
+    player.crouching = input.crouch || player.forcedCrouch;
+
+    const wantsSprint = input.sprint && !player.crouching && wLen > 0.0001 && player.stamina > 0.05;
     player.sprinting = wantsSprint;
     if (wantsSprint) {
       player.stamina -= delta;
@@ -211,7 +216,14 @@ export default function Player({ level, active }) {
 
     // Only the crouch offset is smoothed. Smoothing the floor as well would put
     // a lag between the camera and a staircase the player is visibly on.
-    const wantEye = player.crouching ? EYE_HEIGHT * 0.62 : EYE_HEIGHT;
+    //
+    // The eye is then capped by whatever is actually overhead, re-sampled after
+    // the move: a ceiling that lofts down mid-cell presses the camera lower as
+    // the player advances into it, rather than letting them clip a soffit that
+    // the cell's corner heights said was clear.
+    const overhead = ceilYAt(level, player.x, player.z) - player.feetY - HEAD_PAD;
+    let wantEye = player.crouching ? EYE_HEIGHT * 0.62 : EYE_HEIGHT;
+    if (wantEye > overhead) wantEye = overhead < 0.45 ? 0.45 : overhead;
     player.eyeOffset += (wantEye - player.eyeOffset) * Math.min(1, delta * 9);
     player.y = player.feetY + player.eyeOffset;
 

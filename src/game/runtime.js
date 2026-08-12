@@ -26,6 +26,8 @@ export const player = {
   stamina: STAMINA_MAX,
   sprinting: false,
   crouching: false,
+  /** Crouched by the ceiling rather than by choice — drives the HUD cue. */
+  forcedCrouch: false,
   battery: BATTERY_MAX,
   flashlightOn: true,
   cell: 0,
@@ -74,6 +76,7 @@ export function resetRuntime(spawnX, spawnZ, spawnFloorY = 0) {
   world.collected = 0;
   world.exitOpen = false;
   world.dangerLevel = 0;
+  world.fps = 0;
 }
 
 // ---- Input -----------------------------------------------------------------

@@ -4,8 +4,8 @@
  */
 
 // ---- World grid -------------------------------------------------------------
-export const GRID_W = 61; // must be odd (maze carver works on odd cells)
-export const GRID_H = 61;
+export const GRID_W = 41; // must be odd (maze carver works on odd cells)
+export const GRID_H = 41;
 export const CELL = 3.2; // world units per grid cell
 export const HALF_W = GRID_W * 0.5;
 export const HALF_H = GRID_H * 0.5;
@@ -42,8 +42,12 @@ export const Z_UPPER = 2; // Upper Mezzanine — a storey above the main floor
 
 /** Floor elevation of each stratum, in hu. 0 / 3.2 / 6.4 world units. */
 export const ZONE_FLOOR_HU = [0, 8, 16];
-/** Clear height above each stratum's own floor. */
-export const ZONE_HEADROOM = [2.45, 3.05, 2.8];
+/**
+ * Clear height above each stratum's own floor.
+ * Baselines sit comfortably above STAND_CLEARANCE so organic noise can sag
+ * without forcing a crouch — crawl is reserved for explicit choke zones.
+ */
+export const ZONE_HEADROOM = [2.85, 3.45, 3.15];
 
 /** Split-level offset: a sub-region of a district half a flight off its datum. */
 export const SPLIT_HU = 4; // 1.6 world units
@@ -61,7 +65,105 @@ export const RAMP_HEADROOM = 2.05;
 
 /** Tallest floor a cell can reach (upper stratum plus a positive split). */
 export const MAX_FLOOR_HU = 20;
-export const CEILING_MAX_Y = MAX_FLOOR_HU * RISE + ZONE_HEADROOM[Z_MAIN];
+
+// ---- Ceiling architecture ---------------------------------------------------
+/**
+ * Ceiling height is the level's primary source of spatial variation, and it is
+ * decoupled from the floor: one value per cell CORNER, not per cell.
+ *
+ * That single choice is what buys both transition styles the brief asks for out
+ * of one code path. Neighbouring cells share their corner samples, so a sector
+ * that reads its corners straight off the noise lattice lofts into its
+ * neighbours seamlessly and emits no extra geometry at all. A sector that
+ * quantises instead gets four equal corners, disagrees with whatever abuts it,
+ * and the existing bulkhead emitter turns that disagreement into a hard
+ * architectural step. Gradual slopes and brutal cuts, same emitter.
+ *
+ * Heights are world units, which are metres here (EYE_HEIGHT 1.62).
+ */
+export const CEIL_CHOKE = 1.30; // crawlspace — forces a crouch (rare)
+export const CEIL_SAG = 2.08; // oppressive dip you can still stand under
+export const CEIL_GALLERY = 5.4; // tall bay / double-height pocket
+export const CEIL_VAULT = 7.8; // domed chamber peak
+export const CEIL_ATRIUM = 14.0; // cavernous junction
+export const CEIL_SHAFT = 24.0; // maintenance welt, climbing into black
+export const CEIL_PLENUM_LIFT = 0.72; // ceiling tiles missing: up into the dark
+
+/** No cell is ever generated tighter than this, so every cell stays crawlable. */
+export const CEIL_MIN = 1.28;
+/**
+ * Soft floor for organic (noise / loft) headroom. Only named choke zones may
+ * go below this — keeps the default building walkable without a crouch.
+ */
+export const CEIL_WALK_MIN = 2.05;
+/** Standing needs this much clear above the feet; below it, the crouch is forced. */
+export const STAND_CLEARANCE = 1.86;
+/** Kept between the eye and the ceiling when clearance is squeezing the camera. */
+export const HEAD_PAD = 0.24;
+
+export const CEILING_MAX_Y = MAX_FLOOR_HU * RISE + CEIL_SHAFT;
+
+/**
+ * Curved wall features. Fillet radius is deliberately smaller than a cell so
+ * the arc sits inside the solid mass and grid collision stays authoritative.
+ */
+export const CURVE_FILLET_R = 0.78;
+export const CURVE_FILLET_SEGS = 5;
+/** Arc segments per cell-radius of a circular chamber wall. */
+export const CURVE_ROOM_SEGS_PER_R = 10;
+
+/**
+ * Per-level ceiling character. Only level 0 exists as content today; 1 and 2
+ * are the parameterisation those themes call for, ready for when they do.
+ */
+/**
+ * A note on noiseScale: it is in cycles per CELL, and it has to be read against
+ * how far the player can actually see. Fog closes the view at roughly 6 cells,
+ * so a field whose period is 18 cells varies by a couple of centimetres across
+ * everything visible at once and reads as a flat ceiling with extra steps in
+ * the profiler. Periods of 8-10 cells put a full sag inside one eyeful.
+ */
+export const CEILING_PROFILES = [
+  { // Level 0 — "The Lobby". Quietly wrong: mostly walkable, rare crawl, tall voids.
+    noiseScale: 0.13, octaves: 4, jitter: 0.78,
+    steppedShare: 0.38, // share of districts that cut rather than loft
+    chokeChance: 0.055, // rare corridor crawl runs
+    chokeLen: [1, 3],
+    atriums: [3, 5], atriumRadius: [3, 6],
+    galleries: [4, 7], galleryRadius: [2, 4],
+    vaults: [2, 4], vaultRadius: [2, 3],
+    sags: [3, 6], sagLen: [2, 5],
+    shafts: [2, 5],
+    plenumChance: 0.06, // missing tiles, exposed framing above
+    pipeChance: 0.28,
+    circleRooms: [2, 4], circleRadius: [3, 5],
+    filletChance: 0.55,
+  },
+  { // Level 1 — "Habitable Zone". Warehouse bays bottlenecking into utility runs.
+    noiseScale: 0.08, octaves: 3, jitter: 0.55,
+    steppedShare: 0.70, atriumRadius: [5, 8],
+    chokeChance: 0.12, chokeLen: [2, 4],
+    atriums: [3, 5], galleries: [5, 8], galleryRadius: [3, 5],
+    vaults: [2, 3], vaultRadius: [3, 5],
+    sags: [4, 8], sagLen: [2, 6],
+    shafts: [2, 4],
+    plenumChance: 0.0, pipeChance: 0.55,
+    circleRooms: [3, 5], circleRadius: [4, 7],
+    filletChance: 0.40,
+  },
+  { // Level 2 — "Pipe Dreams". Mostly service height, rare crawl, sudden voids.
+    noiseScale: 0.18, octaves: 3, jitter: 0.40,
+    steppedShare: 0.28, atriumRadius: [2, 4],
+    chokeChance: 0.18, chokeLen: [2, 5],
+    atriums: [4, 7], galleries: [2, 4], galleryRadius: [2, 3],
+    vaults: [3, 6], vaultRadius: [2, 3],
+    sags: [6, 12], sagLen: [3, 7],
+    shafts: [8, 14],
+    plenumChance: 0.0, pipeChance: 0.85,
+    circleRooms: [1, 3], circleRadius: [2, 4],
+    filletChance: 0.35,
+  },
+];
 export const CEILING_Y = CEILING_MAX_Y;
 
 /**
@@ -117,8 +219,8 @@ export const EXIT_RADIUS = 1.6;
 export const PROP_SPARSITY = 34;
 /** Minimum cell separation between two props — they must read as isolated. */
 export const PROP_MIN_SEP = 4;
-/** Collision radius per prop type, indexed by PROP_CHAIR / DESK / CABINET. */
-export const PROP_RADIUS = [0.30, 0.62, 0.46];
+/** Collision radius per prop type: CHAIR / DESK / CABINET / PILLAR. */
+export const PROP_RADIUS = [0.30, 0.62, 0.46, 0.58];
 /** Chance a qualifying wall face receives a door. */
 export const DOOR_CHANCE = 0.055;
 /** Hard rule: this share of doors is permanently locked. The rest open on a closet. */

@@ -183,6 +183,73 @@ export function buildDoorOpenGeometry() {
 }
 
 // ---------------------------------------------------------------------------
+// Supporting architecture for the tall spaces.
+// ---------------------------------------------------------------------------
+
+const CONCRETE = 0x6a6760;
+const CONCRETE_DARK = 0x4c4a45;
+const PIPE_A = 0x5f5a4e;
+const PIPE_B = 0x6d5f45;
+const CABLE = 0x272522;
+
+/**
+ * A load-bearing column, built ONE world unit tall with its base at y=0 and
+ * instanced with a per-column Y scale. An atrium's ceiling is not flat, so
+ * every column has to reach its own bit of soffit; baking the height in would
+ * mean one geometry per column and one draw call each.
+ *
+ * Slightly tapered and capped, so a twelve-metre column still reads as
+ * architecture at a glance rather than as an extruded box.
+ */
+export function buildPillarGeometry() {
+  const s = boxSink();
+  s.box(0, 0.5, 0, 0.42, 0.5, 0.42, CONCRETE); // shaft
+  s.box(0, 0.02, 0, 0.52, 0.02, 0.52, CONCRETE_DARK); // plinth
+  s.box(0, 0.985, 0, 0.50, 0.015, 0.50, CONCRETE_DARK); // capital
+  // Formwork seams down two faces — vertical scale stretches these into the
+  // long board-marks a poured column actually has.
+  s.box(0.425, 0.5, 0, 0.01, 0.48, 0.10, CONCRETE_DARK);
+  s.box(-0.425, 0.5, 0, 0.01, 0.48, 0.10, CONCRETE_DARK);
+  return s.build();
+}
+
+/** A bundled pipe run, lying along local X, hung just under a low soffit. */
+export function buildPipeGeometry() {
+  const s = boxSink();
+  s.box(0, 0, -0.16, 1.7, 0.085, 0.085, PIPE_A);
+  s.box(0, -0.04, 0.02, 1.7, 0.06, 0.06, PIPE_B);
+  s.box(0, 0.02, 0.16, 1.7, 0.045, 0.045, PIPE_A);
+  // Hanger straps back up to the ceiling.
+  for (const u of [-1.1, 0, 1.1]) {
+    s.box(u, 0.12, -0.16, 0.02, 0.12, 0.02, CONCRETE_DARK);
+    s.box(u, 0.12, 0.16, 0.02, 0.12, 0.02, CONCRETE_DARK);
+  }
+  return s.build();
+}
+
+/** A sagging bundle of cable, three segments approximating the catenary. */
+export function buildConduitGeometry() {
+  const s = boxSink();
+  s.box(-1.15, 0.10, 0, 0.58, 0.035, 0.035, CABLE);
+  s.box(0, -0.02, 0, 0.62, 0.04, 0.045, CABLE);
+  s.box(1.15, 0.10, 0, 0.58, 0.035, 0.035, CABLE);
+  return s.build();
+}
+
+/**
+ * The framing left showing where a ceiling tile is gone: two joists and the
+ * grid tee that used to carry the panel.
+ */
+export function buildJoistGeometry() {
+  const s = boxSink();
+  s.box(0, 0.30, -0.55, 1.55, 0.09, 0.03, CONCRETE_DARK);
+  s.box(0, 0.30, 0.55, 1.55, 0.09, 0.03, CONCRETE_DARK);
+  s.box(0, 0.02, 0, 1.58, 0.02, 0.02, 0x8a8578); // surviving grid tee
+  s.box(0, 0.44, 0, 0.9, 0.05, 0.42, 0x3a3830); // duct running away into the dark
+  return s.build();
+}
+
+// ---------------------------------------------------------------------------
 // Handrails. A unit box, instanced with a non-uniform scale per rail and post.
 // ---------------------------------------------------------------------------
 

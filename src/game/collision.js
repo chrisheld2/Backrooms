@@ -1,6 +1,7 @@
 import {
   GRID_W, GRID_H, CELL, HALF_W, HALF_H, RISE, STEP_UP, PROP_RADIUS,
 } from './config.js';
+import { ceilCornerY } from './ceiling.js';
 
 /**
  * Grid collision. O(9) per query, zero allocation, zero raycasts.
@@ -64,13 +65,32 @@ export function floorYAt(level, x, z) {
   return (base + rise * t) * RISE;
 }
 
-/** Ceiling elevation over a point, for headroom checks. */
+/**
+ * Ceiling elevation over a point, bilinear across the cell's four corners.
+ *
+ * Matching the renderer's own lofted surface matters: a ceiling that sags to
+ * 1.9 in the middle of a cell but is sampled as its corner value would let the
+ * player walk upright through geometry their own view shows them ducking under.
+ */
 export function ceilYAt(level, x, z) {
   const gx = ((x / CELL) + HALF_W) | 0;
   const gy = ((z / CELL) + HALF_H) | 0;
   if (gx < 0 || gy < 0 || gx >= GRID_W || gy >= GRID_H) return 0;
   const c = gy * GRID_W + gx;
-  return floorYAt(level, x, z) + level.headroom[c];
+
+  let fx = (x / CELL) + HALF_W - gx;
+  let fz = (z / CELL) + HALF_H - gy;
+  if (fx < 0) fx = 0; else if (fx > 1) fx = 1;
+  if (fz < 0) fz = 0; else if (fz > 1) fz = 1;
+
+  const yA = ceilCornerY(level, c, 0);
+  const yB = ceilCornerY(level, c, 1);
+  const yC = ceilCornerY(level, c, 2);
+  const yD = ceilCornerY(level, c, 3);
+
+  const top = yA + (yB - yA) * fx;
+  const bot = yD + (yC - yD) * fx;
+  return top + (bot - top) * fz;
 }
 
 /**

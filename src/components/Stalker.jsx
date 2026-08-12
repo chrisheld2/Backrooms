@@ -9,7 +9,7 @@ import {
 } from '../game/config.js';
 import { DIR_OFF } from '../game/maze.js';
 import { player, entity, world } from '../game/runtime.js';
-import { hasLineOfSight, floorYAt } from '../game/collision.js';
+import { hasLineOfSight, floorYAt, ceilYAt } from '../game/collision.js';
 import { computeFlow, descend, stepCX, stepCY, resetFlow } from '../game/flowfield.js';
 import { useGame } from '../game/store.js';
 import { jumpscare } from '../game/audio.js';
@@ -179,6 +179,12 @@ export default function Stalker({ level, active }) {
     const restY = floorYAt(level, entity.x, entity.z);
     // Unsettling glide: a slow vertical drift, no walk cycle.
     g.position.set(entity.x, restY + Math.sin(world.elapsed * 2.1) * 0.045, entity.z);
+
+    // It follows you into the crawlspaces. Rather than clip a two-metre body
+    // through a 1.3m soffit, it folds itself down to fit — which is worse.
+    const clear = ceilYAt(level, entity.x, entity.z) - restY;
+    const squash = clear < BODY_H + 0.1 ? Math.max(0.42, (clear - 0.1) / BODY_H) : 1;
+    g.scale.set(1 + (1 - squash) * 0.35, squash, 1 + (1 - squash) * 0.35);
 
     // --- Contact
     if (dist < ENTITY_KILL_DIST && Math.abs(restY - player.feetY) < ENTITY_VERT_CUTOFF) {

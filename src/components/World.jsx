@@ -113,19 +113,22 @@ function GameTick() {
   const frameCountRef = useRef(0);
   const lastTimeRef = useRef(0);
 
-  useFrame((state, rawDelta) => {
+  useFrame((_, rawDelta) => {
     const delta = rawDelta > 0.25 ? 0.25 : rawDelta;
     world.elapsed += delta;
 
     // Accurate FPS calculation based on performance.now() clock
     frameCountRef.current++;
-    const now = state.clock.getElapsedTime();
+    const now = performance.now();
     if (lastTimeRef.current === 0) {
       lastTimeRef.current = now;
-    } else if (now - lastTimeRef.current >= 0.5) {
-      world.fps = Math.round((frameCountRef.current / (now - lastTimeRef.current)));
-      frameCountRef.current = 0;
-      lastTimeRef.current = now;
+    } else {
+      const elapsedSec = (now - lastTimeRef.current) / 1000;
+      if (elapsedSec >= 0.25) {
+        world.fps = Math.round(frameCountRef.current / elapsedSec);
+        frameCountRef.current = 0;
+        lastTimeRef.current = now;
+      }
     }
 
     // Dread: proximity, awareness and darkness all feed one 0..1 scalar that

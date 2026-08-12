@@ -3,10 +3,15 @@ import * as THREE from 'three';
 import {
   CELL, RISE, GRID_W, cellToWorldX, cellToWorldZ,
 } from '../game/config.js';
-import { CONN_STAIR, DIR_DX, DIR_DY, PROP_CHAIR, PROP_DESK, PROP_CABINET } from '../game/maze.js';
+import {
+  CONN_STAIR, DIR_DX, DIR_DY,
+  PROP_CHAIR, PROP_DESK, PROP_CABINET, PROP_PILLAR,
+  FIX_PIPE, FIX_CONDUIT, FIX_JOIST,
+} from '../game/maze.js';
 import {
   buildChairGeometry, buildDeskGeometry, buildCabinetGeometry,
   buildDoorLockedGeometry, buildDoorOpenGeometry, buildRailGeometry,
+  buildPillarGeometry, buildPipeGeometry, buildConduitGeometry, buildJoistGeometry,
   buildPropMaterial,
 } from '../game/props.js';
 
@@ -38,17 +43,25 @@ export default function Props({ level }) {
   const chairRef = useRef(null);
   const deskRef = useRef(null);
   const cabinetRef = useRef(null);
+  const pillarRef = useRef(null);
   const lockedRef = useRef(null);
   const openRef = useRef(null);
   const railRef = useRef(null);
+  const pipeRef = useRef(null);
+  const conduitRef = useRef(null);
+  const joistRef = useRef(null);
 
   const built = useMemo(() => ({
     chairGeo: buildChairGeometry(),
     deskGeo: buildDeskGeometry(),
     cabinetGeo: buildCabinetGeometry(),
+    pillarGeo: buildPillarGeometry(),
     lockedGeo: buildDoorLockedGeometry(),
     openGeo: buildDoorOpenGeometry(),
     railGeo: buildRailGeometry(),
+    pipeGeo: buildPipeGeometry(),
+    conduitGeo: buildConduitGeometry(),
+    joistGeo: buildJoistGeometry(),
     mat: buildPropMaterial(),
   }), []);
 
@@ -58,11 +71,24 @@ export default function Props({ level }) {
     let chair = 0;
     let desk = 0;
     let cabinet = 0;
+    let pillar = 0;
     for (let i = 0; i < props.count; i++) {
       const t = props.type[i];
       if (t === PROP_CHAIR) chair++;
       else if (t === PROP_DESK) desk++;
-      else cabinet++;
+      else if (t === PROP_CABINET) cabinet++;
+      else pillar++;
+    }
+
+    const fx = level.fixtures;
+    let pipe = 0;
+    let conduit = 0;
+    let joist = 0;
+    for (let i = 0; i < fx.count; i++) {
+      const t = fx.type[i];
+      if (t === FIX_PIPE) pipe++;
+      else if (t === FIX_CONDUIT) conduit++;
+      else joist++;
     }
 
     let locked = 0;
@@ -77,20 +103,22 @@ export default function Props({ level }) {
     }
 
     return {
-      chair, desk, cabinet,
+      chair, desk, cabinet, pillar,
       locked, open: level.doors.length - locked,
       rail: stairCells * 6,
+      pipe, conduit, joist,
     };
   }, [level]);
 
-  // --- Furniture --------------------------------------------------------------
+  // --- Furniture and columns ---------------------------------------------------
   useEffect(() => {
     const props = level.props;
-    const cursors = { [PROP_CHAIR]: 0, [PROP_DESK]: 0, [PROP_CABINET]: 0 };
+    const cursors = { [PROP_CHAIR]: 0, [PROP_DESK]: 0, [PROP_CABINET]: 0, [PROP_PILLAR]: 0 };
     const meshes = {
       [PROP_CHAIR]: chairRef.current,
       [PROP_DESK]: deskRef.current,
       [PROP_CABINET]: cabinetRef.current,
+      [PROP_PILLAR]: pillarRef.current,
     };
 
     for (let i = 0; i < props.count; i++) {
@@ -99,7 +127,8 @@ export default function Props({ level }) {
       _pos.set(props.x[i], props.y[i], props.z[i]);
       _euler.set(0, props.rot[i], 0);
       _quat.setFromEuler(_euler);
-      _scale.set(1, 1, 1);
+      // Columns are unit-tall and stretched to reach their own patch of soffit.
+      _scale.set(1, props.scaleY[i], 1);
       _m4.compose(_pos, _quat, _scale);
       mesh.setMatrixAt(cursors[props.type[i]]++, _m4);
     }
@@ -222,17 +251,48 @@ export default function Props({ level }) {
     mesh.frustumCulled = false;
   }, [level, counts]);
 
+  // --- Ceiling services --------------------------------------------------------
+  useEffect(() => {
+    const fx = level.fixtures;
+    const cursors = { [FIX_PIPE]: 0, [FIX_CONDUIT]: 0, [FIX_JOIST]: 0 };
+    const meshes = {
+      [FIX_PIPE]: pipeRef.current,
+      [FIX_CONDUIT]: conduitRef.current,
+      [FIX_JOIST]: joistRef.current,
+    };
+
+    for (let i = 0; i < fx.count; i++) {
+      const mesh = meshes[fx.type[i]];
+      if (!mesh) continue;
+      _pos.set(fx.x[i], fx.y[i], fx.z[i]);
+      _euler.set(0, fx.rot[i], 0);
+      _quat.setFromEuler(_euler);
+      _scale.set(1, 1, 1);
+      _m4.compose(_pos, _quat, _scale);
+      mesh.setMatrixAt(cursors[fx.type[i]]++, _m4);
+    }
+
+    for (const key in meshes) {
+      const mesh = meshes[key];
+      if (!mesh) continue;
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+      mesh.frustumCulled = false;
+    }
+  }, [level, counts]);
+
   // --- Explicit GPU teardown ---------------------------------------------------
   useEffect(() => () => {
-    built.chairGeo.dispose();
-    built.deskGeo.dispose();
-    built.cabinetGeo.dispose();
-    built.lockedGeo.dispose();
-    built.openGeo.dispose();
-    built.railGeo.dispose();
-    built.mat.dispose();
+    for (const key in built) {
+      const res = built[key];
+      if (res && res.dispose) res.dispose();
+    }
 
-    for (const ref of [chairRef, deskRef, cabinetRef, lockedRef, openRef, railRef]) {
+    for (const ref of [
+      chairRef, deskRef, cabinetRef, pillarRef,
+      lockedRef, openRef, railRef,
+      pipeRef, conduitRef, joistRef,
+    ]) {
       const mesh = ref.current;
       if (!mesh) continue;
       mesh.dispose(); // releases the instanceMatrix GPU buffer
@@ -257,8 +317,20 @@ export default function Props({ level }) {
       {counts.open > 0 && (
         <instancedMesh ref={openRef} args={[built.openGeo, built.mat, counts.open]} matrixAutoUpdate={false} />
       )}
+      {counts.pillar > 0 && (
+        <instancedMesh ref={pillarRef} args={[built.pillarGeo, built.mat, counts.pillar]} matrixAutoUpdate={false} castShadow />
+      )}
       {counts.rail > 0 && (
         <instancedMesh ref={railRef} args={[built.railGeo, built.mat, counts.rail]} matrixAutoUpdate={false} />
+      )}
+      {counts.pipe > 0 && (
+        <instancedMesh ref={pipeRef} args={[built.pipeGeo, built.mat, counts.pipe]} matrixAutoUpdate={false} />
+      )}
+      {counts.conduit > 0 && (
+        <instancedMesh ref={conduitRef} args={[built.conduitGeo, built.mat, counts.conduit]} matrixAutoUpdate={false} />
+      )}
+      {counts.joist > 0 && (
+        <instancedMesh ref={joistRef} args={[built.joistGeo, built.mat, counts.joist]} matrixAutoUpdate={false} />
       )}
     </>
   );

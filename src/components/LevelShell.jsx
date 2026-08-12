@@ -49,7 +49,7 @@ export default function LevelShell({ level }) {
     });
     const floorMat = new THREE.MeshLambertMaterial({ map: tex.carpet, vertexColors: true });
     const hardMat = new THREE.MeshLambertMaterial({ map: tex.hard, vertexColors: true });
-    const ceilMat = new THREE.MeshLambertMaterial({ map: tex.ceiling });
+    const ceilMat = new THREE.MeshLambertMaterial({ map: tex.ceiling, vertexColors: true });
 
     return { wallGeo, floorGeo, hardGeo, ceilGeo, wallMat, floorMat, hardMat, ceilMat };
   }, [level, gl]);
