@@ -29,8 +29,18 @@ export default function Overlays({ onRequestLock }) {
   return (
     <div className={`overlay overlay-${phase}`}>
       <div className="overlay-inner">
+        {/* Office Paper Accents: Tape, Coffee Stain, Ink Smudges */}
+        <div className="paper-tape-left" />
+        <div className="paper-tape-right" />
+        <div className="paper-coffee-stain" />
+        <div className="paper-smudge-1" />
+        <div className="paper-smudge-2" />
+        <div className="paper-smudge-3" />
+
         {phase === 'menu' && (
           <>
+            <div className="paper-stamp">ARCHIVE LOG #04</div>
+            <div className="margin-note">ALMOND WATER = LIFE</div>
             <h1>THE BACKROOMS</h1>
             <p className="sub">LEVEL 0 &mdash; &ldquo;THE LOBBY&rdquo;</p>
             <p className="body">
@@ -50,25 +60,33 @@ export default function Overlays({ onRequestLock }) {
 
         {phase === 'paused' && (
           <>
+            <div className="paper-stamp">SUSPENDED</div>
+            <div className="margin-note">DON'T LOOK BACK</div>
             <h1>PAUSED</h1>
             <div className="pause-tabs" role="tablist">
               <button className={pauseTab === 'game' ? 'active' : ''} onClick={() => setPauseTab('game')} role="tab">GAME</button>
               <button className={pauseTab === 'audio' ? 'active' : ''} onClick={() => setPauseTab('audio')} role="tab">AUDIO</button>
               <button className={pauseTab === 'effects' ? 'active' : ''} onClick={() => setPauseTab('effects')} role="tab">VISUAL EFFECTS</button>
             </div>
-            {pauseTab === 'game' && <Controls />}
-            {pauseTab === 'audio' && <AudioPanel
-              sfxMuted={sfxMuted} setSfxMuted={setSfxMuted} sfxVolume={sfxVolume} setSfxVolume={setSfxVolume}
-              musicMuted={musicMuted} setMusicMuted={setMusicMuted} musicVolume={musicVolume} setMusicVolume={setMusicVolume}
-            />}
-            {pauseTab === 'effects' && <VisualEffectsPanel settings={visualEffects} onChange={setVisualEffect} onReset={resetVisualEffects} />}
-            <button className="btn" onClick={() => { resume(); onRequestLock(); }}>RESUME</button>
-            <button className="btn ghost" onClick={() => { start(); onRequestLock(); }}>RESTART RUN</button>
+            <div className="pause-tab-body">
+              {pauseTab === 'game' && <Controls />}
+              {pauseTab === 'audio' && <AudioPanel
+                sfxMuted={sfxMuted} setSfxMuted={setSfxMuted} sfxVolume={sfxVolume} setSfxVolume={setSfxVolume}
+                musicMuted={musicMuted} setMusicMuted={setMusicMuted} musicVolume={musicVolume} setMusicVolume={setMusicVolume}
+              />}
+              {pauseTab === 'effects' && <VisualEffectsPanel settings={visualEffects} onChange={setVisualEffect} onReset={resetVisualEffects} />}
+            </div>
+            <div className="pause-actions">
+              <button className="btn" onClick={() => { resume(); onRequestLock(); }}>RESUME</button>
+              <button className="btn ghost" onClick={() => { start(); onRequestLock(); }}>RESTART RUN</button>
+            </div>
           </>
         )}
 
         {phase === 'dead' && (
           <>
+            <div className="paper-stamp bad-stamp">TERMINATED</div>
+            <div className="margin-note">IT HEARS EVERYTHING</div>
             <h1 className="bad">YOU DID NOT MAKE IT OUT</h1>
             <p className="sub">{deathCause}</p>
             <p className="body">
@@ -82,6 +100,8 @@ export default function Overlays({ onRequestLock }) {
 
         {phase === 'won' && (
           <>
+            <div className="paper-stamp good-stamp">SURVIVED</div>
+            <div className="margin-note">LEVEL 1 AHEAD?</div>
             <h1 className="good">YOU FOUND A WAY OUT</h1>
             <p className="sub">Level 0 cleared in {time}</p>
             <p className="body dim">
