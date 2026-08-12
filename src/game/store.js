@@ -22,15 +22,36 @@ export const DEFAULT_VISUAL_EFFECTS = {
   vcrDynamic: false,
 };
 
+function clampVolume(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 1;
+  return Math.max(0, Math.min(1, n));
+}
+
+const DEFAULT_SETTINGS = {
+  sfxMuted: false,
+  sfxVolume: 1,
+  musicMuted: false,
+  musicVolume: 1,
+  visualEffects: DEFAULT_VISUAL_EFFECTS,
+};
+
 function readSettings() {
   try {
     const saved = JSON.parse(window.localStorage.getItem(SETTINGS_KEY));
+    // Back-compat: older saves had a single `muted`/`volume` pair that
+    // controlled sound and music together. Seed both buses from it.
+    const legacyMuted = Boolean(saved?.muted);
+    const legacyVolume = clampVolume(saved?.volume ?? 1);
     return {
-      muted: Boolean(saved?.muted),
+      sfxMuted: saved?.sfxMuted ?? legacyMuted,
+      sfxVolume: clampVolume(saved?.sfxVolume ?? legacyVolume),
+      musicMuted: saved?.musicMuted ?? legacyMuted,
+      musicVolume: clampVolume(saved?.musicVolume ?? legacyVolume),
       visualEffects: { ...DEFAULT_VISUAL_EFFECTS, ...saved?.visualEffects },
     };
   } catch {
-    return { muted: false, visualEffects: DEFAULT_VISUAL_EFFECTS };
+    return DEFAULT_SETTINGS;
   }
 }
 
@@ -42,9 +63,18 @@ function saveSettings(settings) {
   }
 }
 
-const initialSettings = typeof window === 'undefined'
-  ? { muted: false, visualEffects: DEFAULT_VISUAL_EFFECTS }
-  : readSettings();
+const initialSettings = typeof window === 'undefined' ? DEFAULT_SETTINGS : readSettings();
+
+function persistSettings(partial) {
+  const state = useGame.getState();
+  saveSettings({
+    sfxMuted: partial.sfxMuted ?? state.sfxMuted,
+    sfxVolume: partial.sfxVolume ?? state.sfxVolume,
+    musicMuted: partial.musicMuted ?? state.musicMuted,
+    musicVolume: partial.musicVolume ?? state.musicVolume,
+    visualEffects: partial.visualEffects ?? state.visualEffects,
+  });
+}
 
 /**
  * LOW-FREQUENCY state only. Every setter here triggers a React render pass, so
@@ -68,18 +98,32 @@ export const useGame = create((set) => ({
     deathCause: '',
   })),
   resume: () => set({ phase: 'playing' }),
-  setMuted: (muted) => {
-    saveSettings({ muted, visualEffects: useGame.getState().visualEffects });
-    set({ muted });
+  setSfxMuted: (sfxMuted) => {
+    persistSettings({ sfxMuted });
+    set({ sfxMuted });
+  },
+  setSfxVolume: (volume) => {
+    const sfxVolume = clampVolume(volume);
+    persistSettings({ sfxVolume });
+    set({ sfxVolume });
+  },
+  setMusicMuted: (musicMuted) => {
+    persistSettings({ musicMuted });
+    set({ musicMuted });
+  },
+  setMusicVolume: (volume) => {
+    const musicVolume = clampVolume(volume);
+    persistSettings({ musicVolume });
+    set({ musicVolume });
   },
   setVisualEffect: (effect, value) => set((state) => {
     const visualEffects = { ...state.visualEffects, [effect]: value };
-    saveSettings({ muted: state.muted, visualEffects });
+    persistSettings({ visualEffects });
     return { visualEffects };
   }),
   resetVisualEffects: () => set((state) => {
     const visualEffects = { ...DEFAULT_VISUAL_EFFECTS };
-    saveSettings({ muted: state.muted, visualEffects });
+    persistSettings({ visualEffects });
     return { visualEffects };
   }),
   pause: () => set((s) => (s.phase === 'playing' ? { phase: 'paused' } : {})),

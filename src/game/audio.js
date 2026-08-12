@@ -6,10 +6,18 @@
  * per hit, which is unavoidable — WebAudio source nodes are single-use by spec.
  * They are kept small, are freed on `ended`, and fire at most ~2.5/second, so
  * they never approach GC pressure that would show up as a frame spike.
+ *
+ * The one exception is the background music track (`Hazmat.mp3`), a real
+ * asset streamed via an HTMLAudioElement and routed into the graph through a
+ * single persistent MediaElementSource into its own gain bus, independently
+ * volume/mute-controlled from the procedural SFX bus.
  */
+
+import hazmatUrl from '../media/audio/Hazmat.mp3';
 
 let ctx = null;
 let master = null;
+let sfxBus = null;
 let humGain = null;
 let rumbleGain = null;
 let heartGain = null;
@@ -19,7 +27,25 @@ let humOscA = null;
 let humOscB = null;
 let rumbleSrc = null;
 let heartTimer = 0;
-let muted = false;
+let musicEl = null;
+let musicSource = null;
+let musicGain = null;
+let sfxMuted = false;
+let musicMuted = false;
+/** User volumes 0..1, applied independently to the SFX bus and the music bus. */
+let sfxVolume = 1;
+let musicVolume = 1;
+
+const SFX_BASE = 0.9;
+const MUSIC_BASE = 0.5;
+
+function sfxTarget() {
+  return sfxMuted ? 0 : SFX_BASE * sfxVolume;
+}
+
+function musicTarget() {
+  return musicMuted ? 0 : MUSIC_BASE * musicVolume;
+}
 
 export function initAudio() {
   if (ctx) return ctx;
@@ -28,8 +54,12 @@ export function initAudio() {
   ctx = new AC();
 
   master = ctx.createGain();
-  master.gain.value = muted ? 0 : 0.9;
+  master.gain.value = 1;
   master.connect(ctx.destination);
+
+  sfxBus = ctx.createGain();
+  sfxBus.gain.value = sfxTarget();
+  sfxBus.connect(master);
 
   // --- Shared white-noise buffer (2s), reused by every noise-based voice.
   noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
@@ -52,7 +82,7 @@ export function initAudio() {
   humOscA.connect(humFilter);
   humOscB.connect(humFilter);
   humFilter.connect(humGain);
-  humGain.connect(master);
+  humGain.connect(sfxBus);
   humOscA.start();
   humOscB.start();
 
@@ -67,21 +97,64 @@ export function initAudio() {
   rumbleSrc.loop = true;
   rumbleSrc.connect(rumbleFilter);
   rumbleFilter.connect(rumbleGain);
-  rumbleGain.connect(master);
+  rumbleGain.connect(sfxBus);
   rumbleSrc.start();
 
   heartGain = ctx.createGain();
   heartGain.gain.value = 0.0;
-  heartGain.connect(master);
+  heartGain.connect(sfxBus);
+
+  // --- Background music: streamed, looped, routed through its own bus so
+  // music volume/mute is independent from the SFX bus.
+  musicEl = new Audio(hazmatUrl);
+  musicEl.loop = true;
+  musicEl.preload = 'auto';
+  musicGain = ctx.createGain();
+  musicGain.gain.value = musicTarget();
+  musicSource = ctx.createMediaElementSource(musicEl);
+  musicSource.connect(musicGain);
+  musicGain.connect(master);
 
   started = true;
   return ctx;
 }
 
-export function setMuted(nextMuted) {
-  muted = Boolean(nextMuted);
-  if (!master || !ctx) return;
-  master.gain.setTargetAtTime(muted ? 0 : 0.9, ctx.currentTime, 0.03);
+/** Starts (or resumes) the looping background music track. */
+export function playMusic() {
+  if (!musicEl) return;
+  musicEl.play().catch(() => { /* blocked until a user gesture; retried on next call */ });
+}
+
+/** Pauses the background music track without resetting playback position. */
+export function pauseMusic() {
+  if (!musicEl) return;
+  musicEl.pause();
+}
+
+export function setSfxMuted(nextMuted) {
+  sfxMuted = Boolean(nextMuted);
+  if (!sfxBus || !ctx) return;
+  sfxBus.gain.setTargetAtTime(sfxTarget(), ctx.currentTime, 0.03);
+}
+
+/** Set SFX bus volume 0..1. Mute still forces silence; unmuting restores this level. */
+export function setSfxVolume(nextVolume) {
+  sfxVolume = Math.max(0, Math.min(1, Number(nextVolume) || 0));
+  if (!sfxBus || !ctx) return;
+  sfxBus.gain.setTargetAtTime(sfxTarget(), ctx.currentTime, 0.03);
+}
+
+export function setMusicMuted(nextMuted) {
+  musicMuted = Boolean(nextMuted);
+  if (!musicGain || !ctx) return;
+  musicGain.gain.setTargetAtTime(musicTarget(), ctx.currentTime, 0.03);
+}
+
+/** Set music bus volume 0..1. Mute still forces silence; unmuting restores this level. */
+export function setMusicVolume(nextVolume) {
+  musicVolume = Math.max(0, Math.min(1, Number(nextVolume) || 0));
+  if (!musicGain || !ctx) return;
+  musicGain.gain.setTargetAtTime(musicTarget(), ctx.currentTime, 0.03);
 }
 
 export function resumeAudio() {
@@ -120,7 +193,7 @@ export function footstep(sprinting) {
 
   src.connect(filter);
   filter.connect(g);
-  g.connect(master);
+  g.connect(sfxBus);
   src.start(t, Math.random() * 1.5, 0.16);
   src.onended = () => { src.disconnect(); filter.disconnect(); g.disconnect(); };
 }
@@ -147,7 +220,7 @@ function thump(when, freq, peak) {
   g.gain.exponentialRampToValueAtTime(peak, when + 0.02);
   g.gain.exponentialRampToValueAtTime(0.0001, when + 0.22);
   osc.connect(g);
-  g.connect(master);
+  g.connect(sfxBus);
   osc.start(when);
   osc.stop(when + 0.25);
   osc.onended = () => { osc.disconnect(); g.disconnect(); };
@@ -165,7 +238,7 @@ export function pickupChime() {
     g.gain.exponentialRampToValueAtTime(0.08, t + i * 0.07 + 0.01);
     g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.07 + 0.34);
     osc.connect(g);
-    g.connect(master);
+    g.connect(sfxBus);
     osc.start(t + i * 0.07);
     osc.stop(t + i * 0.07 + 0.36);
     osc.onended = () => { osc.disconnect(); g.disconnect(); };
@@ -189,7 +262,7 @@ export function jumpscare() {
   g.gain.exponentialRampToValueAtTime(0.0001, t + 1.3);
   src.connect(filter);
   filter.connect(g);
-  g.connect(master);
+  g.connect(sfxBus);
   src.start(t, 0, 1.4);
   src.onended = () => { src.disconnect(); filter.disconnect(); g.disconnect(); };
 
@@ -201,7 +274,7 @@ export function jumpscare() {
   og.gain.setValueAtTime(0.3, t);
   og.gain.exponentialRampToValueAtTime(0.0001, t + 1.3);
   osc.connect(og);
-  og.connect(master);
+  og.connect(sfxBus);
   osc.start(t);
   osc.stop(t + 1.35);
   osc.onended = () => { osc.disconnect(); og.disconnect(); };
@@ -220,7 +293,7 @@ export function winChord() {
     g.gain.exponentialRampToValueAtTime(0.09, t + 0.12 + i * 0.05);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 2.2);
     osc.connect(g);
-    g.connect(master);
+    g.connect(sfxBus);
     osc.start(t);
     osc.stop(t + 2.3);
     osc.onended = () => { osc.disconnect(); g.disconnect(); };
@@ -235,8 +308,15 @@ export function disposeAudio() {
     humOscB && humOscB.stop();
     rumbleSrc && rumbleSrc.stop();
   } catch { /* already stopped */ }
+  if (musicEl) {
+    musicEl.pause();
+    musicEl.src = '';
+    musicSource && musicSource.disconnect();
+    musicGain && musicGain.disconnect();
+  }
   ctx.close();
-  ctx = null; master = null; humGain = null; rumbleGain = null;
+  ctx = null; master = null; sfxBus = null; humGain = null; rumbleGain = null;
   heartGain = null; noiseBuffer = null; started = false;
   humOscA = null; humOscB = null; rumbleSrc = null;
+  musicEl = null; musicSource = null; musicGain = null;
 }

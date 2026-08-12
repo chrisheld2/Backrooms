@@ -221,6 +221,10 @@ canvas { display: block; outline: none; touch-action: none; cursor: crosshair; }
 
 .btn.ghost:hover { color: var(--amber); border-color: var(--amber); }
 
+.audio-settings { display: flex; flex-direction: column; align-items: center; gap: 22px; margin: 18px auto 6px; max-width: 280px; width: 100%; }
+.audio-channel { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; }
+.audio-channel + .audio-channel { padding-top: 20px; border-top: 1px solid rgba(216, 207, 154, .14); }
+.volume-control { width: 100%; text-align: left; }
 .mute-toggle { min-width: 190px; }
 .mute-toggle.is-muted { color: var(--bad); border-color: rgba(200, 69, 46, 0.55); }
 .mute-toggle.is-muted:hover { color: #ed765e; border-color: var(--bad); }

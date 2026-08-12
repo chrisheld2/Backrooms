@@ -3,7 +3,7 @@ import { Canvas } from '@react-three/fiber';
 import * as THREE from 'three';
 import { DPR_MIN, DPR_MAX, FOG_COLOR } from './game/config.js';
 import { useGame } from './game/store.js';
-import { initAudio, resumeAudio, suspendAudio, disposeAudio, setMuted } from './game/audio.js';
+import { initAudio, resumeAudio, suspendAudio, disposeAudio, setSfxMuted, setSfxVolume, setMusicMuted, setMusicVolume, playMusic, pauseMusic } from './game/audio.js';
 import { disposeTextures } from './game/textures.js';
 import World from './components/World.jsx';
 import VisualEffects from './components/VisualEffects.jsx';
@@ -22,7 +22,10 @@ export default function App() {
   const seed = useGame((s) => s.seed);
   const runId = useGame((s) => s.runId);
   const pause = useGame((s) => s.pause);
-  const muted = useGame((s) => s.muted);
+  const sfxMuted = useGame((s) => s.sfxMuted);
+  const sfxVolume = useGame((s) => s.sfxVolume);
+  const musicMuted = useGame((s) => s.musicMuted);
+  const musicVolume = useGame((s) => s.musicVolume);
   const visualEffects = useGame((s) => s.visualEffects);
 
   const canvasRef = useRef(null);
@@ -51,6 +54,13 @@ export default function App() {
     if (phase === 'paused') suspendAudio();
   }, [phase]);
 
+  // Background music: starts (and resumes) whenever a run is actively
+  // playing, pauses whenever the pause menu is open.
+  useEffect(() => {
+    if (phase === 'playing') playMusic();
+    else if (phase === 'paused') pauseMusic();
+  }, [phase]);
+
   // Backgrounded tabs get paused: rAF is already throttled there, but audio and
   // the simulation should stop cleanly rather than fast-forward on return.
   useEffect(() => {
@@ -72,8 +82,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    setMuted(muted);
-  }, [muted]);
+    setSfxMuted(sfxMuted);
+  }, [sfxMuted]);
+
+  useEffect(() => {
+    setSfxVolume(sfxVolume);
+  }, [sfxVolume]);
+
+  useEffect(() => {
+    setMusicMuted(musicMuted);
+  }, [musicMuted]);
+
+  useEffect(() => {
+    setMusicVolume(musicVolume);
+  }, [musicVolume]);
 
   return (
     <div className="app">

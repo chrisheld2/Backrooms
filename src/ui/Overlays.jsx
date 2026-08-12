@@ -9,8 +9,14 @@ export default function Overlays({ onRequestLock }) {
   const finalTime = useGame((s) => s.finalTime);
   const start = useGame((s) => s.start);
   const resume = useGame((s) => s.resume);
-  const muted = useGame((s) => s.muted);
-  const setMuted = useGame((s) => s.setMuted);
+  const sfxMuted = useGame((s) => s.sfxMuted);
+  const setSfxMuted = useGame((s) => s.setSfxMuted);
+  const sfxVolume = useGame((s) => s.sfxVolume);
+  const setSfxVolume = useGame((s) => s.setSfxVolume);
+  const musicMuted = useGame((s) => s.musicMuted);
+  const setMusicMuted = useGame((s) => s.setMusicMuted);
+  const musicVolume = useGame((s) => s.musicVolume);
+  const setMusicVolume = useGame((s) => s.setMusicVolume);
   const visualEffects = useGame((s) => s.visualEffects);
   const setVisualEffect = useGame((s) => s.setVisualEffect);
   const resetVisualEffects = useGame((s) => s.resetVisualEffects);
@@ -47,12 +53,15 @@ export default function Overlays({ onRequestLock }) {
             <h1>PAUSED</h1>
             <div className="pause-tabs" role="tablist">
               <button className={pauseTab === 'game' ? 'active' : ''} onClick={() => setPauseTab('game')} role="tab">GAME</button>
+              <button className={pauseTab === 'audio' ? 'active' : ''} onClick={() => setPauseTab('audio')} role="tab">AUDIO</button>
               <button className={pauseTab === 'effects' ? 'active' : ''} onClick={() => setPauseTab('effects')} role="tab">VISUAL EFFECTS</button>
             </div>
-            {pauseTab === 'game' ? <>
-              <Controls />
-              <button className={`btn ghost mute-toggle${muted ? ' is-muted' : ''}`} onClick={() => setMuted(!muted)} aria-pressed={muted}>SOUND: {muted ? 'MUTED' : 'ON'}</button>
-            </> : <VisualEffectsPanel settings={visualEffects} onChange={setVisualEffect} onReset={resetVisualEffects} />}
+            {pauseTab === 'game' && <Controls />}
+            {pauseTab === 'audio' && <AudioPanel
+              sfxMuted={sfxMuted} setSfxMuted={setSfxMuted} sfxVolume={sfxVolume} setSfxVolume={setSfxVolume}
+              musicMuted={musicMuted} setMusicMuted={setMusicMuted} musicVolume={musicVolume} setMusicVolume={setMusicVolume}
+            />}
+            {pauseTab === 'effects' && <VisualEffectsPanel settings={visualEffects} onChange={setVisualEffect} onReset={resetVisualEffects} />}
             <button className="btn" onClick={() => { resume(); onRequestLock(); }}>RESUME</button>
             <button className="btn ghost" onClick={() => { start(); onRequestLock(); }}>RESTART RUN</button>
           </>
@@ -97,6 +106,43 @@ const EFFECTS = [
 const VCR_EFFECTS = [
   ['analogVCR', 'Analog VCR'], ['vcrJitter', 'Horizontal jitter'], ['vcrTear', 'Tear frequency'],
 ];
+
+function AudioPanel({ sfxMuted, setSfxMuted, sfxVolume, setSfxVolume, musicMuted, setMusicMuted, musicVolume, setMusicVolume }) {
+  return <div className="audio-settings" role="tabpanel">
+    <div className="audio-channel">
+      <label className="effect-control volume-control">
+        <span>Sound volume</span>
+        <output>{Math.round(sfxVolume * 100)}%</output>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          value={sfxVolume}
+          onChange={(event) => setSfxVolume(Number(event.target.value))}
+          aria-label="Sound effects volume"
+        />
+      </label>
+      <button className={`btn ghost mute-toggle${sfxMuted ? ' is-muted' : ''}`} onClick={() => setSfxMuted(!sfxMuted)} aria-pressed={sfxMuted}>SOUND: {sfxMuted ? 'MUTED' : 'ON'}</button>
+    </div>
+    <div className="audio-channel">
+      <label className="effect-control volume-control">
+        <span>Music volume</span>
+        <output>{Math.round(musicVolume * 100)}%</output>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          value={musicVolume}
+          onChange={(event) => setMusicVolume(Number(event.target.value))}
+          aria-label="Music volume"
+        />
+      </label>
+      <button className={`btn ghost mute-toggle${musicMuted ? ' is-muted' : ''}`} onClick={() => setMusicMuted(!musicMuted)} aria-pressed={musicMuted}>MUSIC: {musicMuted ? 'MUTED' : 'ON'}</button>
+    </div>
+  </div>;
+}
 
 function VisualEffectsPanel({ settings, onChange, onReset }) {
   return <div className="effects-panel" role="tabpanel">
