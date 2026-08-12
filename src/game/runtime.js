@@ -55,6 +55,7 @@ export const world = {
   // Minimap read-only pointers: set once per run (World.jsx / Pickups.jsx),
   // never reallocated per frame.
   pickupX: null, pickupZ: null, pickupsTaken: null,
+  heights: null, conn: null, zone: null, slopeDir: null, slopeRise: null,
 };
 
 export function resetRuntime(spawnX, spawnZ, spawnFloorY = 0) {

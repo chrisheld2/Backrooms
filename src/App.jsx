@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { DPR_MIN, DPR_MAX, FOG_COLOR } from './game/config.js';
 import { useGame } from './game/store.js';
 import { initAudio, resumeAudio, suspendAudio, disposeAudio, setSfxMuted, setSfxVolume, setMusicMuted, setMusicVolume, playMusic, pauseMusic } from './game/audio.js';
-import { disposeTextures } from './game/textures.js';
+import { disposeTextures, refreshTextures } from './game/textures.js';
 import World from './components/World.jsx';
 import VisualEffects from './components/VisualEffects.jsx';
 import Hud from './ui/Hud.jsx';
@@ -31,6 +31,7 @@ export default function App() {
 
   const canvasRef = useRef(null);
   const glRef = useRef(null);
+  const onContextRestoredRef = useRef(null);
   const playing = phase === 'playing';
   const realTimeShadows = visualEffects.realTimeShadows;
 
@@ -77,9 +78,16 @@ export default function App() {
 
   // Backgrounded tabs get paused: rAF is already throttled there, but audio and
   // the simulation should stop cleanly rather than fast-forward on return.
+  // On resume, re-touch module-cached textures so a GPU context rebuild cannot
+  // leave LevelShell maps blank while untextured props still render.
   useEffect(() => {
     function onVisibility() {
-      if (document.hidden) { pause(); suspendAudio(); }
+      if (document.hidden) {
+        pause();
+        suspendAudio();
+      } else {
+        refreshTextures();
+      }
     }
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
@@ -90,6 +98,11 @@ export default function App() {
     return () => {
       // Process-level teardown: module-cached GPU textures and the audio graph
       // outlive individual runs, so this is where they die.
+      const gl = glRef.current;
+      const onRestored = onContextRestoredRef.current;
+      if (gl && onRestored) {
+        gl.domElement.removeEventListener('webglcontextrestored', onRestored);
+      }
       disposeTextures();
       disposeAudio();
     };
@@ -134,6 +147,14 @@ export default function App() {
           scene.matrixWorldAutoUpdate = true;
           gl.shadowMap.enabled = realTimeShadows;
           gl.shadowMap.type = THREE.PCFSoftShadowMap;
+
+          // Three re-inits its GL state on context restore; force our durable
+          // CPU-side atlases to re-upload so walls/floor do not come back blank.
+          if (onContextRestoredRef.current) {
+            gl.domElement.removeEventListener('webglcontextrestored', onContextRestoredRef.current);
+          }
+          onContextRestoredRef.current = () => { refreshTextures(); };
+          gl.domElement.addEventListener('webglcontextrestored', onContextRestoredRef.current);
         }}
         onPointerDown={() => { if (!playing) return; requestLock(); }}
       >

@@ -50,6 +50,11 @@ export default function World({ seed, active }) {
   useEffect(() => {
     world.grid = level.grid;
     world.openCells = level.openCells;
+    world.heights = level.heights;
+    world.conn = level.conn;
+    world.zone = level.zone;
+    world.slopeDir = level.slopeDir;
+    world.slopeRise = level.slopeRise;
     // Dev-only inspection handle, alongside the one runtime.js installs. Lets
     // the generated section be walked and queried without a rebuild. Stripped
     // from the production bundle entirely.
@@ -73,7 +78,15 @@ export default function World({ seed, active }) {
       cellToWorldZ((level.spawn / GRID_W) | 0),
       level.heights[level.spawn] * RISE,
     );
-    return () => { world.grid = null; world.openCells = null; };
+    return () => {
+      world.grid = null;
+      world.openCells = null;
+      world.heights = null;
+      world.conn = null;
+      world.zone = null;
+      world.slopeDir = null;
+      world.slopeRise = null;
+    };
   }, [level]);
 
   useEffect(() => {

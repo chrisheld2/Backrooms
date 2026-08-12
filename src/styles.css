@@ -75,10 +75,78 @@ canvas { display: block; outline: none; touch-action: none; cursor: crosshair; }
 
 .minimap canvas { display: block; }
 
-.minimap-hint {
+.minimap-level-badge {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #ffe9a8;
+  background: rgba(10, 9, 6, 0.7);
+  border: 1px solid rgba(216, 207, 154, 0.35);
+  padding: 2px 7px;
+  border-radius: 10px;
+  pointer-events: none;
+  text-shadow: 0 0 4px rgba(0,0,0,0.9);
+  white-space: nowrap;
+  z-index: 2;
+}
+
+.minimap-footer {
   position: absolute;
   bottom: 4px;
+  left: 8px;
   right: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.minimap-legend {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+}
+
+.legend-item {
+  font-size: 8px;
+  font-family: monospace;
+  font-weight: 700;
+  padding: 1px 3px;
+  border-radius: 3px;
+  line-height: 1;
+}
+
+.legend-l0 {
+  background: rgba(42, 85, 125, 0.85);
+  color: #a0d8ff;
+  border: 1px solid rgba(120, 200, 255, 0.4);
+}
+
+.legend-l1 {
+  background: rgba(180, 170, 110, 0.85);
+  color: #fff6d0;
+  border: 1px solid rgba(216, 207, 154, 0.4);
+}
+
+.legend-l2 {
+  background: rgba(215, 120, 45, 0.85);
+  color: #ffeed5;
+  border: 1px solid rgba(255, 180, 100, 0.4);
+}
+
+.legend-stairs {
+  background: rgba(255, 195, 45, 0.9);
+  color: #1a1200;
+  border: 1px solid rgba(255, 230, 120, 0.6);
+}
+
+.minimap-hint {
   font-size: 10px;
   letter-spacing: 0.1em;
   color: var(--amber-dim);

@@ -13,6 +13,12 @@ import carpetImage from '../media/textures/carpet.png';
  *
  * Everything here is module-cached: the maze is one draw call per surface type,
  * so there is exactly one instance of each texture alive at a time.
+ *
+ * IMPORTANT: textures are baked into DataTexture (CPU ArrayBuffer), not left as
+ * live CanvasTexture sources. After a long background pause browsers can wipe
+ * canvas backing stores and/or recreate the WebGL context; on restore Three
+ * re-uploads from the source image. A blank canvas makes every LevelShell map
+ * (walls/floor/ceiling/concrete) vanish while untextured props still draw.
  */
 
 const SIZE = 256;
@@ -22,15 +28,15 @@ function canvas2dSized(w, h) {
   const el = document.createElement('canvas');
   el.width = w;
   el.height = h;
-  return el.getContext('2d', { willReadFrequently: false });
+  // willReadFrequently: we always snapshot the finished atlas into a DataTexture.
+  return el.getContext('2d', { willReadFrequently: true });
 }
 
 function canvas2d() {
   return canvas2dSized(SIZE, SIZE);
 }
 
-function makeTexture(ctx, repeat, aniso) {
-  const tex = new THREE.CanvasTexture(ctx.canvas);
+function configureTexture(tex, repeat, aniso) {
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(repeat, repeat);
@@ -39,7 +45,26 @@ function makeTexture(ctx, repeat, aniso) {
   tex.generateMipmaps = true;
   tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.magFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
   return tex;
+}
+
+/**
+ * Snapshot a finished canvas into a DataTexture whose pixels live in a JS
+ * ArrayBuffer that the browser cannot silently discard.
+ */
+function textureFromCanvas(canvas, repeat, aniso) {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true }) || canvas.getContext('2d');
+  const { width, height } = canvas;
+  const imageData = ctx.getImageData(0, 0, width, height);
+  // Own the buffer so later canvas reuse cannot alias the GPU upload source.
+  const data = new Uint8Array(imageData.data);
+  const tex = new THREE.DataTexture(data, width, height, THREE.RGBAFormat);
+  return configureTexture(tex, repeat, aniso);
+}
+
+function makeTexture(ctx, repeat, aniso) {
+  return textureFromCanvas(ctx.canvas, repeat, aniso);
 }
 
 /** Fine per-pixel grain, written straight into the ImageData byte buffer. */
@@ -89,10 +114,10 @@ const FLOOR_GRIME = [
 
 /**
  * Loads a tileable source image, tiles it atlasN x atlasN into one canvas,
- * bakes faint mildew splotches + grain over the whole canvas, and returns it
- * as a repeating CanvasTexture. repeat is set to 1/atlasN so the base pattern
- * keeps its original world-space density while the grime only cycles every
- * atlasN tiles — the two periods misalign, which breaks up the stamp look.
+ * bakes faint mildew splotches + grain over the whole canvas, and returns a
+ * durable DataTexture. repeat is set to 1/atlasN so the base pattern keeps its
+ * original world-space density while the grime only cycles every atlasN tiles —
+ * the two periods misalign, which breaks up the stamp look.
  *
  * One texture, one draw call, zero per-frame cost: all work is at load time.
  */
@@ -100,17 +125,14 @@ function buildCompositedTexture(imageUrl, aniso, atlasN, grimeRecipes, grimeSeed
   const canvas = document.createElement('canvas');
   canvas.width = SIZE * atlasN;
   canvas.height = SIZE * atlasN;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(1 / atlasN, 1 / atlasN);
-  tex.anisotropy = aniso;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.generateMipmaps = true;
-  tex.minFilter = THREE.LinearMipmapLinearFilter;
-  tex.magFilter = THREE.LinearFilter;
+  // Bind materials immediately to a durable (initially empty) DataTexture.
+  // The image load path overwrites the pixel buffer — never leaves a live
+  // canvas as the upload source.
+  const placeholder = new Uint8Array(canvas.width * canvas.height * 4);
+  const tex = new THREE.DataTexture(placeholder, canvas.width, canvas.height, THREE.RGBAFormat);
+  configureTexture(tex, 1 / atlasN, aniso);
 
   const img = new Image();
   img.crossOrigin = 'anonymous';
@@ -133,6 +155,10 @@ function buildCompositedTexture(imageUrl, aniso, atlasN, grimeRecipes, grimeSeed
       stains(ctx, rng, recipe.count, recipe.color, recipe.maxR, w, h);
     }
     grain(ctx, grainAmount, rng, w, h);
+
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const pixels = new Uint8Array(imageData.data);
+    tex.image = { data: pixels, width: w, height: h };
     tex.needsUpdate = true;
   };
   img.src = imageUrl;
@@ -342,9 +368,23 @@ export function getTextures(maxAnisotropy) {
   return _cache;
 }
 
+/**
+ * Force GPU re-upload of every cached surface. Call after a tab resume or
+ * WebGL context restore so LevelShell maps reappear if the context was rebuilt.
+ */
+export function refreshTextures() {
+  if (!_cache) return;
+  for (const key in _cache) {
+    const tex = _cache[key];
+    if (tex) tex.needsUpdate = true;
+  }
+}
+
 /** Explicit VRAM release. Call when the game surface is torn down for good. */
 export function disposeTextures() {
   if (!_cache) return;
   for (const key in _cache) _cache[key].dispose();
   _cache = null;
+  _wallpaperTextureCache = null;
+  _carpetTextureCache = null;
 }

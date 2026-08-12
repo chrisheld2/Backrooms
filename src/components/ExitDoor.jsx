@@ -39,7 +39,7 @@ export default function ExitDoor({ level, active }) {
     const canvas = document.createElement('canvas');
     canvas.width = 128;
     canvas.height = 64;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     ctx.fillStyle = '#04120a';
     ctx.fillRect(0, 0, 128, 64);
     ctx.fillStyle = '#7dffbe';
@@ -47,8 +47,14 @@ export default function ExitDoor({ level, active }) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('EXIT', 64, 34);
-    const signTex = new THREE.CanvasTexture(canvas);
+    // DataTexture (not CanvasTexture): canvas pixels can be wiped after a long
+    // background pause, and a re-upload would blank the sign.
+    const imageData = ctx.getImageData(0, 0, 128, 64);
+    const signTex = new THREE.DataTexture(
+      new Uint8Array(imageData.data), 128, 64, THREE.RGBAFormat,
+    );
     signTex.colorSpace = THREE.SRGBColorSpace;
+    signTex.needsUpdate = true;
 
     const signGeo = new THREE.PlaneGeometry(0.9, 0.45);
     const signMat = new THREE.MeshBasicMaterial({ map: signTex, toneMapped: false });
