@@ -21,6 +21,7 @@ export const DEFAULT_VISUAL_EFFECTS = {
   vcrTear: 0.3,
   vcrDynamic: false,
   realTimeShadows: false,
+  volumetricFog: 2,
 };
 
 function clampVolume(value) {

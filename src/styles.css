@@ -665,6 +665,17 @@ canvas { display: block; outline: none; touch-action: none; cursor: crosshair; }
   cursor: pointer;
 }
 
+.effect-control select {
+  min-width: 110px;
+  padding: 4px 8px;
+  font: 700 16px 'Kalam', cursive, sans-serif;
+  color: #1e293b;
+  background: #fffbe6;
+  border: 1.5px solid #475569;
+  border-radius: 8px 4px 10px 5px;
+  cursor: pointer;
+}
+
 .mute-toggle {
   align-self: flex-start;
   margin-top: 4px;
@@ -755,4 +766,3 @@ canvas { display: block; outline: none; touch-action: none; cursor: crosshair; }
   .effects-grid { grid-template-columns: 1fr; }
   .margin-note { display: none; }
 }
-

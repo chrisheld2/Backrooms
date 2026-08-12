@@ -7,6 +7,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
+import VolumetricFogPass from './VolumetricFogPass.js';
 
 const shader = {
   uniforms: {
@@ -98,9 +99,15 @@ const shader = {
 /** Composer-managed scene effects. Settings are updated live without recreating GPU resources. */
 export default function VisualEffects({ settings }) {
   const { gl, scene, camera, size } = useThree();
-  const { composer, bloom, ssao, pass } = useMemo(() => {
+  const { composer, bloom, ssao, volumetricFog, pass } = useMemo(() => {
     const composer = new EffectComposer(gl);
+    // The scene pass writes depth here; the volumetric pass stops every ray at
+    // the first visible surface instead of drawing haze over foreground walls.
+    composer.renderTarget1.depthTexture = new THREE.DepthTexture(1, 1, THREE.UnsignedIntType);
+    composer.renderTarget2.depthTexture = new THREE.DepthTexture(1, 1, THREE.UnsignedIntType);
     composer.addPass(new RenderPass(scene, camera));
+    const volumetricFog = new VolumetricFogPass(scene, camera);
+    composer.addPass(volumetricFog);
     const ssao = new SSAOPass(scene, camera, size.width, size.height, 32);
     ssao.output = SSAOPass.OUTPUT.Default;
     // The pass renders the scene with a normal-override material to derive
@@ -114,14 +121,17 @@ export default function VisualEffects({ settings }) {
     const pass = new ShaderPass(shader);
     composer.addPass(pass);
     composer.addPass(new OutputPass());
-    return { composer, bloom, ssao, pass };
+    return { composer, bloom, ssao, volumetricFog, pass };
   }, [gl, scene, camera]);
 
   useEffect(() => {
     composer.setSize(size.width, size.height);
     pass.uniforms.resolution.value.set(size.width * gl.getPixelRatio(), size.height * gl.getPixelRatio());
   }, [composer, pass, gl, size]);
-  useEffect(() => () => composer.dispose(), [composer]);
+  useEffect(() => () => {
+    volumetricFog.dispose();
+    composer.dispose();
+  }, [composer, volumetricFog]);
 
   useFrame((_, delta) => {
     bloom.strength = settings.bloom;
@@ -135,6 +145,7 @@ export default function VisualEffects({ settings }) {
     ssao.kernelRadius = 0.15 + ssaoAmount * 2.0;
     ssao.minDistance = 0.001;
     ssao.maxDistance = 0.05;
+    volumetricFog.setQuality(settings.volumetricFog ?? 0);
     Object.entries(settings).forEach(([key, value]) => {
       if (pass.uniforms[key]) pass.uniforms[key].value = typeof value === 'boolean' ? (value ? 1 : 0) : value;
     });

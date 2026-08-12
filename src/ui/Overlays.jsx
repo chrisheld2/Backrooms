@@ -172,6 +172,15 @@ function VisualEffectsPanel({ settings, onChange, onReset }) {
       <input type="range" min="0" max="1" step="0.01" value={settings[key]} onChange={(event) => onChange(key, Number(event.target.value))} />
     </label>)}</div>
     <h4 className="effects-section-title">Lighting</h4>
+    <label className="effect-control">
+      <span>Volumetric Fog</span>
+      <select value={settings.volumetricFog ?? 0} onChange={(event) => onChange('volumetricFog', Number(event.target.value))}>
+        <option value="0">Off</option>
+        <option value="1">Low</option>
+        <option value="2">Medium</option>
+        <option value="3">High</option>
+      </select>
+    </label>
     <label className="effect-control effect-toggle">
       <span>Real-Time Shadows</span>
       <input type="checkbox" checked={settings.realTimeShadows} onChange={(event) => onChange('realTimeShadows', event.target.checked)} />
