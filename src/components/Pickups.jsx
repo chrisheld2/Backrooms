@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
-  GRID_W, PICKUP_COUNT, PICKUP_RADIUS, LEVEL_STEP, cellToWorldX, cellToWorldZ,
+  GRID_W, PICKUP_COUNT, PICKUP_RADIUS, RISE, cellToWorldX, cellToWorldZ,
 } from '../game/config.js';
 import { player, world } from '../game/runtime.js';
 import { pickupChime } from '../game/audio.js';
@@ -35,7 +35,7 @@ export default function Pickups({ level, active }) {
       const c = level.pickupCells[i];
       x[i] = cellToWorldX(c % GRID_W);
       z[i] = cellToWorldZ((c / GRID_W) | 0);
-      y[i] = level.heights[c] * LEVEL_STEP;
+      y[i] = level.heights[c] * RISE;
     }
     return { x, z, y };
   }, [level]);
@@ -63,6 +63,8 @@ export default function Pickups({ level, active }) {
   useEffect(() => {
     taken.fill(0);
     world.collected = 0;
+    world.pickupsTaken = taken;
+    return () => { world.pickupsTaken = null; };
   }, [taken]);
 
   useFrame((_, delta) => {
@@ -105,6 +107,8 @@ export default function Pickups({ level, active }) {
       args={[built.geo, built.mat, PICKUP_COUNT]}
       frustumCulled={false}
       matrixAutoUpdate={false}
+      castShadow
+      receiveShadow
     />
   );
 }

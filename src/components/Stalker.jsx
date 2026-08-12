@@ -4,11 +4,12 @@ import * as THREE from 'three';
 import {
   GRID_W, GRID_H, ENTITY_SPEED_ROAM, ENTITY_SPEED_HUNT, ENTITY_KILL_DIST,
   ENTITY_HEAR_DIST, ENTITY_SIGHT_DIST, ENTITY_GRACE, ENTITY_NEAR_DIST,
-  HZ_ENTITY_FAR, WALK_SPEED, LEVEL_STEP,
+  HZ_ENTITY_FAR, WALK_SPEED, ENTITY_VERT_CUTOFF,
   cellToWorldX, cellToWorldZ, worldToCellX, worldToCellY,
 } from '../game/config.js';
+import { DIR_OFF } from '../game/maze.js';
 import { player, entity, world } from '../game/runtime.js';
-import { hasLineOfSight, heightTierAt } from '../game/collision.js';
+import { hasLineOfSight, floorYAt } from '../game/collision.js';
 import { computeFlow, descend, stepCX, stepCY, resetFlow } from '../game/flowfield.js';
 import { useGame } from '../game/store.js';
 import { jumpscare } from '../game/audio.js';
@@ -112,9 +113,15 @@ export default function Stalker({ level, active }) {
     a.acc = 0;
 
     // --- Awareness
-    const canSee = hasLineOfSight(level.grid, entity.x, entity.z, player.x, player.z, ENTITY_SIGHT_DIST);
-    const heard = player.speed > WALK_SPEED * 1.15 && dist < ENTITY_HEAR_DIST;
-    if (canSee || heard || dist < 5) {
+    // Sight is horizontal (see hasLineOfSight), so it is gated on elevation
+    // separately: standing a storey above the thing genuinely does hide you,
+    // which is what makes the mezzanine worth climbing to.
+    const floorY = floorYAt(level, entity.x, entity.z);
+    const sameLevel = Math.abs(floorY - player.feetY) < ENTITY_VERT_CUTOFF;
+    const canSee = sameLevel
+      && hasLineOfSight(level.grid, entity.x, entity.z, player.x, player.z, ENTITY_SIGHT_DIST);
+    const heard = player.speed > WALK_SPEED * 1.15 && dist < ENTITY_HEAR_DIST && sameLevel;
+    if (canSee || heard || (dist < 5 && sameLevel)) {
       entity.hunting = true;
       entity.huntTimer = 7.5;
     } else if (entity.hunting) {
@@ -132,13 +139,13 @@ export default function Stalker({ level, active }) {
 
     if (reached) {
       if (entity.hunting) {
-        computeFlow(level.grid, player.cell);
-        if (descend(level.grid, cx, cy)) {
+        computeFlow(level.pass, player.cell);
+        if (descend(level.pass, cx, cy)) {
           a.tcx = stepCX;
           a.tcy = stepCY;
         }
       } else {
-        wander(level.grid, cx, cy, a, level.rng);
+        wander(level.pass, cx, cy, a, level.rng);
       }
       a.lastDX = a.tcx - cx;
       a.lastDY = a.tcy - cy;
@@ -167,14 +174,14 @@ export default function Stalker({ level, active }) {
       g.quaternion.slerp(_q, Math.min(1, dt * 6));
     }
 
-    // --- Commit transform
-    const floorY = heightTierAt(level.heights, entity.x, entity.z) * LEVEL_STEP;
-    g.position.set(entity.x, floorY, entity.z);
+    // --- Commit transform. Re-sampled after the move so it rides the treads
+    // of a flight rather than lagging a cell behind them.
+    const restY = floorYAt(level, entity.x, entity.z);
     // Unsettling glide: a slow vertical drift, no walk cycle.
-    g.position.y = floorY + Math.sin(world.elapsed * 2.1) * 0.045;
+    g.position.set(entity.x, restY + Math.sin(world.elapsed * 2.1) * 0.045, entity.z);
 
     // --- Contact
-    if (dist < ENTITY_KILL_DIST) {
+    if (dist < ENTITY_KILL_DIST && Math.abs(restY - player.feetY) < ENTITY_VERT_CUTOFF) {
       jumpscare();
       die('It found you.', world.elapsed);
     }
@@ -182,7 +189,7 @@ export default function Stalker({ level, active }) {
 
   return (
     <group ref={groupRef} visible={false}>
-      <mesh geometry={built.bodyGeo} material={built.bodyMat} />
+      <mesh geometry={built.bodyGeo} material={built.bodyMat} castShadow />
       <mesh geometry={built.eyeGeo} material={built.eyeMat} position={[-0.1, BODY_H - 0.22, 0.28]} />
       <mesh geometry={built.eyeGeo} material={built.eyeMat} position={[0.1, BODY_H - 0.22, 0.28]} />
     </group>
@@ -192,17 +199,24 @@ export default function Stalker({ level, active }) {
 /**
  * Roaming: a corridor-following random walk that dislikes turning back. Keeps
  * it drifting down long halls instead of vibrating in place at a junction.
+ *
+ * Steps over the same passability mask the hunt uses, so a roaming entity will
+ * walk off a ledge onto the level below but will never wander up one.
  */
-function wander(grid, cx, cy, a, rng) {
+function wander(pass, cx, cy, a, rng) {
   let bestX = cx;
   let bestY = cy;
   let bestScore = -1;
 
-  for (let d = 0; d < 4; d++) {
-    const nx = cx + (d === 0 ? 1 : d === 1 ? -1 : 0);
-    const ny = cy + (d === 2 ? 1 : d === 3 ? -1 : 0);
+  const here = cy * GRID_W + cx;
+  const mask = pass[here];
+
+  for (let dir = 1; dir <= 4; dir++) {
+    if ((mask & (1 << (dir - 1))) === 0) continue;
+    const n = here + DIR_OFF[dir];
+    const nx = n % GRID_W;
+    const ny = (n / GRID_W) | 0;
     if (nx < 1 || ny < 1 || nx >= GRID_W - 1 || ny >= GRID_H - 1) continue;
-    if (grid[ny * GRID_W + nx] === 1) continue;
 
     const dx = nx - cx;
     const dy = ny - cy;

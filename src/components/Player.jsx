@@ -3,11 +3,12 @@ import { useFrame, useThree } from '@react-three/fiber';
 import {
   EYE_HEIGHT, PLAYER_RADIUS, WALK_SPEED, SPRINT_SPEED, CROUCH_SPEED,
   ACCEL, FRICTION, MOUSE_SENSITIVITY, PITCH_LIMIT,
-  STAMINA_MAX, STAMINA_REGEN, BATTERY_MAX, LEVEL_STEP,
+  STAMINA_MAX, STAMINA_REGEN, BATTERY_MAX,
+  GRAVITY, HARD_LANDING,
   worldToCellX, worldToCellY, GRID_W,
 } from '../game/config.js';
 import { player, input, bindInput } from '../game/runtime.js';
-import { resolveCircle, hitX, hitZ, heightTierAt } from '../game/collision.js';
+import { resolveCircle, hitX, hitZ, floorYAt } from '../game/collision.js';
 import { footstep } from '../game/audio.js';
 import { useGame } from '../game/store.js';
 
@@ -26,11 +27,20 @@ import { useGame } from '../game/store.js';
 
 const MAX_DELTA = 1 / 20; // hard clamp: a stalled tab must not teleport the player
 
+/**
+ * How far the floor may sit below the feet while the player still counts as
+ * standing on it. Sized to swallow a frame's worth of descent down the steepest
+ * connector at sprint speed on a stalled frame (5.6 * MAX_DELTA * tan 26.6° =
+ * 0.14) while staying well under the shallowest deliberate drop (1.6).
+ */
+const GROUND_SNAP = 0.35;
+
 export default function Player({ level, active }) {
   const camera = useThree((s) => s.camera);
   const gl = useThree((s) => s.gl);
   const lightRef = useRef(null);
   const pause = useGame((s) => s.pause);
+  const realTimeShadows = useGame((s) => s.visualEffects.realTimeShadows);
 
   // --- Input + pointer lock ---------------------------------------------------
   useEffect(() => bindInput(), []);
@@ -133,7 +143,11 @@ export default function Player({ level, active }) {
     // --- Integrate + resolve against the grid
     const nextX = player.x + player.vx * delta;
     const nextZ = player.z + player.vz * delta;
-    resolveCircle(level.grid, nextX, nextZ, PLAYER_RADIUS);
+    // Feet elevation is what decides whether a neighbouring cell is floor or a
+    // wall this frame: below you it is a drop you may walk off, more than
+    // STEP_UP above you it is unclimbable. That one comparison is the whole
+    // reason a drop-off is one-way.
+    resolveCircle(level, nextX, nextZ, PLAYER_RADIUS, player.feetY);
 
     // Kill the velocity component that was cancelled by the wall, so sliding
     // along a corridor stays smooth instead of stuttering.
@@ -163,16 +177,43 @@ export default function Player({ level, active }) {
     player.roll = Math.cos(player.bobPhase) * bobAmp * 0.22;
 
     const stepIndex = Math.floor(player.bobPhase / Math.PI);
-    if (stepIndex !== stepFlag.current && speed > 0.6) {
+    if (stepIndex !== stepFlag.current && speed > 0.6 && player.grounded) {
       stepFlag.current = stepIndex;
       footstep(wantsSprint);
     }
 
-    // --- Crouch height + floor tier (stairs/ramps), both smoothed the same way
-    // so climbing a step reads as a quick rise rather than a snap.
-    const floorY = heightTierAt(level.heights, player.x, player.z) * LEVEL_STEP;
-    const targetY = (player.crouching ? EYE_HEIGHT * 0.62 : EYE_HEIGHT) + floorY;
-    player.y += (targetY - player.y) * Math.min(1, delta * 6);
+    // --- Vertical: stick to the floor, or fall off it
+    //
+    // The ground under the player is an exact surface — flat on a landing, a
+    // true incline across a stair or ramp cell. While the gap to it is inside
+    // GROUND_SNAP the player is glued to it, which covers walking up a flight,
+    // walking down one, and touching down after a fall in the same branch.
+    // Anything larger is a drop-off, and gravity takes over.
+    const groundY = floorYAt(level, player.x, player.z);
+    const gap = player.feetY - groundY;
+
+    if (gap <= GROUND_SNAP && (player.grounded || player.vy <= 0)) {
+      if (!player.grounded && player.fallStart - groundY > HARD_LANDING) footstep(true);
+      player.feetY = groundY;
+      player.vy = 0;
+      player.grounded = true;
+    } else {
+      if (player.grounded) { player.grounded = false; player.fallStart = player.feetY; }
+      player.vy -= GRAVITY * delta;
+      player.feetY += player.vy * delta;
+      if (player.feetY <= groundY) {
+        if (player.fallStart - groundY > HARD_LANDING) footstep(true);
+        player.feetY = groundY;
+        player.vy = 0;
+        player.grounded = true;
+      }
+    }
+
+    // Only the crouch offset is smoothed. Smoothing the floor as well would put
+    // a lag between the camera and a staircase the player is visibly on.
+    const wantEye = player.crouching ? EYE_HEIGHT * 0.62 : EYE_HEIGHT;
+    player.eyeOffset += (wantEye - player.eyeOffset) * Math.min(1, delta * 9);
+    player.y = player.feetY + player.eyeOffset;
 
     // --- Flashlight battery
     if (player.flashlightOn && player.battery > 0) {
@@ -195,7 +236,11 @@ export default function Player({ level, active }) {
       distance={24}
       decay={1.35}
       color={0xfff0cc}
-      castShadow={false}
+      castShadow={realTimeShadows}
+      shadow-mapSize={[1024, 1024]}
+      shadow-bias={-0.0025}
+      shadow-camera-near={0.15}
+      shadow-camera-far={24}
     />
   );
 }

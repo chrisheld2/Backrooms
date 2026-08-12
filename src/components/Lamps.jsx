@@ -2,9 +2,10 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
-  CELL, CEILING_Y, LAMP_STRIDE, LIGHT_POOL_SIZE, HZ_LIGHT_ASSIGN,
-  cellToWorldX, cellToWorldZ, GRID_W,
+  CELL, RISE, LAMP_STRIDE, LIGHT_POOL_SIZE, HZ_LIGHT_ASSIGN, LAMP_KEEP_LOWER,
+  Z_LOWER, cellToWorldX, cellToWorldZ, GRID_W,
 } from '../game/config.js';
+import { CONN_FLAT } from '../game/maze.js';
 import { player, world } from '../game/runtime.js';
 
 /**
@@ -41,17 +42,25 @@ export default function Lamps({ level }) {
   const lamps = useMemo(() => {
     const xs = [];
     const zs = [];
+    const ys = [];
     for (let i = 0; i < level.openCells.length; i++) {
       const c = level.openCells[i];
       const cx = c % GRID_W;
       const cy = (c / GRID_W) | 0;
       if (cx % LAMP_STRIDE !== 2 || cy % LAMP_STRIDE !== 2) continue;
+      // Connector shafts are lit by whatever spills in from either landing.
+      if (level.conn[c] !== CONN_FLAT) continue;
+      // Maintenance never got the same fit-out as the floors above it.
+      if (level.zone[c] === Z_LOWER && level.rng() > LAMP_KEEP_LOWER) continue;
       xs.push(cellToWorldX(cx));
       zs.push(cellToWorldZ(cy));
+      // Each stratum carries its panels at its own ceiling, not one shared plane.
+      ys.push(level.heights[c] * RISE + level.headroom[c]);
     }
     const count = xs.length;
     const x = new Float32Array(xs);
     const z = new Float32Array(zs);
+    const y = new Float32Array(ys);
 
     // ~9% of lamps are on their way out. Phase is fixed per lamp so the
     // flicker pattern is stable and reproducible instead of frame-random.
@@ -64,7 +73,7 @@ export default function Lamps({ level }) {
     const brokenList = [];
     for (let i = 0; i < count; i++) if (broken[i]) brokenList.push(i);
 
-    return { count, x, z, broken, phase, brokenList: new Int32Array(brokenList) };
+    return { count, x, y, z, broken, phase, brokenList: new Int32Array(brokenList) };
   }, [level]);
 
   const built = useMemo(() => {
@@ -85,7 +94,7 @@ export default function Lamps({ level }) {
     if (!mesh) return;
 
     for (let i = 0; i < lamps.count; i++) {
-      _mat4.makeTranslation(lamps.x[i], CEILING_Y - 0.02, lamps.z[i]);
+      _mat4.makeTranslation(lamps.x[i], lamps.y[i] - 0.02, lamps.z[i]);
       mesh.setMatrixAt(i, _mat4);
       _color.setScalar(lamps.broken[i] ? 0.35 : 1.0);
       mesh.setColorAt(i, _color);
@@ -129,10 +138,15 @@ export default function Lamps({ level }) {
     for (let i = 0; i < LIGHT_POOL_SIZE; i++) { bestIdx[i] = -1; bestDist[i] = Infinity; }
     const px = player.x;
     const pz = player.z;
+    const py = player.y;
     for (let i = 0; i < lamps.count; i++) {
       const dx = lamps.x[i] - px;
       const dz = lamps.z[i] - pz;
-      const d2 = dx * dx + dz * dz;
+      // Vertical distance counts double: a panel one stratum up is nearer in
+      // plan than the corridor you are actually standing in, and without this
+      // the pool spends its lights on a ceiling behind a floor slab.
+      const dy = (lamps.y[i] - py) * 2;
+      const d2 = dx * dx + dz * dz + dy * dy;
       if (d2 > 900) continue; // 30m cull, beyond fog
       for (let s = 0; s < LIGHT_POOL_SIZE; s++) {
         if (d2 >= bestDist[s]) continue;
@@ -155,7 +169,7 @@ export default function Lamps({ level }) {
         light.intensity = 0;
         continue;
       }
-      light.position.set(lamps.x[li], CEILING_Y - 0.12, lamps.z[li]);
+      light.position.set(lamps.x[li], lamps.y[li] - 0.12, lamps.z[li]);
       light.intensity = lamps.broken[li] ? flickerValue(t, lamps.phase[li]) * 9.0 : 9.0;
     }
 

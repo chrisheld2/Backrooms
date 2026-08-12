@@ -19,6 +19,7 @@ import { useGame } from '../game/store.js';
  */
 export default function Hud() {
   const phase = useGame((s) => s.phase);
+  const fpsRef = useRef(null);
   const timerRef = useRef(null);
   const foundRef = useRef(null);
   const staminaRef = useRef(null);
@@ -31,6 +32,9 @@ export default function Hud() {
     if (phase !== 'playing') return;
     const id = setInterval(() => {
       const t = world.elapsed;
+      if (fpsRef.current) {
+        fpsRef.current.textContent = `${world.fps || 0} FPS`;
+      }
       if (timerRef.current) {
         const m = (t / 60) | 0;
         const s = (t % 60) | 0;
@@ -69,6 +73,10 @@ export default function Hud() {
     <div className="hud">
       <div className="vignette" ref={vignetteRef} />
       <div className="crosshair" />
+
+      <div className="hud-top-left">
+        <span className="hud-fps" ref={fpsRef}>0 FPS</span>
+      </div>
 
       <div className="hud-top">
         <span className="hud-objective" ref={objectiveRef}>FIND THE ALMOND WATER</span>

@@ -2,13 +2,14 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
-  FOG_COLOR, FOG_DENSITY, PICKUP_COUNT, GRID_W, HZ_HUD, LEVEL_STEP,
+  FOG_COLOR, FOG_DENSITY, PICKUP_COUNT, GRID_W, HZ_HUD, RISE,
   cellToWorldX, cellToWorldZ, ENTITY_SIGHT_DIST,
 } from '../game/config.js';
 import { generateLevel, pickSpreadCells } from '../game/maze.js';
 import { player, entity, world, resetRuntime } from '../game/runtime.js';
 import { setAmbience, heartbeat } from '../game/audio.js';
 import LevelShell from './LevelShell.jsx';
+import Props from './Props.jsx';
 import Lamps from './Lamps.jsx';
 import Player from './Player.jsx';
 import Pickups from './Pickups.jsx';
@@ -34,12 +35,14 @@ export default function World({ seed, active }) {
   const level = useMemo(() => {
     const lvl = generateLevel(seed);
 
-    // Objective placement, far from spawn and from each other.
-    lvl.pickupCells = pickSpreadCells(lvl.grid, lvl.openCells, lvl.rng, PICKUP_COUNT, lvl.spawn, 8);
-    lvl.exitCell = pickSpreadCells(lvl.grid, lvl.openCells, lvl.rng, 1, lvl.spawn, 22)[0];
+    // Objective placement, far from spawn and from each other. Every candidate
+    // is inside the strongly connected component, so an objective can never
+    // land somewhere a one-way drop would strand the player.
+    lvl.pickupCells = pickSpreadCells(lvl, PICKUP_COUNT, lvl.spawn, 8);
+    lvl.exitCell = pickSpreadCells(lvl, 1, lvl.spawn, 22)[0];
 
     // The entity starts a long way off; it is not meant to be a spawn camper.
-    lvl.entitySpawn = pickSpreadCells(lvl.grid, lvl.openCells, lvl.rng, 1, lvl.spawn, 26)[0];
+    lvl.entitySpawn = pickSpreadCells(lvl, 1, lvl.spawn, 26)[0];
     return lvl;
   }, [seed]);
 
@@ -47,12 +50,28 @@ export default function World({ seed, active }) {
   useEffect(() => {
     world.grid = level.grid;
     world.openCells = level.openCells;
+    // Dev-only inspection handle, alongside the one runtime.js installs. Lets
+    // the generated section be walked and queried without a rebuild. Stripped
+    // from the production bundle entirely.
+    if (import.meta.env && import.meta.env.DEV && window.__backrooms) {
+      window.__backrooms.level = level;
+      window.__backrooms.scene = scene;
+    }
     world.exitX = cellToWorldX(level.exitCell % GRID_W);
     world.exitZ = cellToWorldZ((level.exitCell / GRID_W) | 0);
+    const pickupX = new Float32Array(PICKUP_COUNT);
+    const pickupZ = new Float32Array(PICKUP_COUNT);
+    for (let i = 0; i < PICKUP_COUNT; i++) {
+      const c = level.pickupCells[i];
+      pickupX[i] = cellToWorldX(c % GRID_W);
+      pickupZ[i] = cellToWorldZ((c / GRID_W) | 0);
+    }
+    world.pickupX = pickupX;
+    world.pickupZ = pickupZ;
     resetRuntime(
       cellToWorldX(level.spawn % GRID_W),
       cellToWorldZ((level.spawn / GRID_W) | 0),
-      level.heights[level.spawn] * LEVEL_STEP,
+      level.heights[level.spawn] * RISE,
     );
     return () => { world.grid = null; world.openCells = null; };
   }, [level]);
@@ -75,6 +94,7 @@ export default function World({ seed, active }) {
       <GameTick />
       <Player level={level} active={active} />
       <LevelShell level={level} />
+      <Props level={level} />
       <Lamps level={level} />
       <Pickups level={level} active={active} />
       <ExitDoor level={level} active={active} />
@@ -90,10 +110,23 @@ export default function World({ seed, active }) {
  */
 function GameTick() {
   const audioAccRef = useRef(0);
+  const frameCountRef = useRef(0);
+  const lastTimeRef = useRef(0);
 
-  useFrame((_, rawDelta) => {
+  useFrame((state, rawDelta) => {
     const delta = rawDelta > 0.25 ? 0.25 : rawDelta;
     world.elapsed += delta;
+
+    // Accurate FPS calculation based on performance.now() clock
+    frameCountRef.current++;
+    const now = state.clock.getElapsedTime();
+    if (lastTimeRef.current === 0) {
+      lastTimeRef.current = now;
+    } else if (now - lastTimeRef.current >= 0.5) {
+      world.fps = Math.round((frameCountRef.current / (now - lastTimeRef.current)));
+      frameCountRef.current = 0;
+      lastTimeRef.current = now;
+    }
 
     // Dread: proximity, awareness and darkness all feed one 0..1 scalar that
     // drives audio and the HUD vignette.

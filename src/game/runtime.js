@@ -15,6 +15,11 @@ import {
 export const player = {
   x: 0, z: 0, y: EYE_HEIGHT,
   vx: 0, vz: 0,
+  // Vertical state is tracked at the FEET, not the camera: the floor under the
+  // player is an exact surface (see floorYAt) and the eye is that plus a
+  // smoothed crouch offset. Doing it the other way round makes stepping off a
+  // mezzanine either snap or float, depending on which lerp wins.
+  feetY: 0, vy: 0, grounded: true, fallStart: 0, eyeOffset: EYE_HEIGHT,
   yaw: 0, pitch: 0,
   bobPhase: 0, bobY: 0, roll: 0,
   speed: 0,
@@ -44,10 +49,16 @@ export const world = {
   exitOpen: false,
   exitX: 0, exitZ: 0,
   dangerLevel: 0, // 0..1, drives audio + vignette
+  fps: 0,
+  // Minimap read-only pointers: set once per run (World.jsx / Pickups.jsx),
+  // never reallocated per frame.
+  pickupX: null, pickupZ: null, pickupsTaken: null,
 };
 
 export function resetRuntime(spawnX, spawnZ, spawnFloorY = 0) {
   player.x = spawnX; player.z = spawnZ; player.y = EYE_HEIGHT + spawnFloorY;
+  player.feetY = spawnFloorY; player.vy = 0; player.grounded = true;
+  player.fallStart = spawnFloorY; player.eyeOffset = EYE_HEIGHT;
   player.vx = 0; player.vz = 0;
   player.yaw = 0; player.pitch = 0;
   player.bobPhase = 0; player.bobY = 0; player.roll = 0;

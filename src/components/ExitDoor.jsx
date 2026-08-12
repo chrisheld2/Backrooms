@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { GRID_W, EXIT_RADIUS, LEVEL_STEP, cellToWorldX, cellToWorldZ } from '../game/config.js';
+import { GRID_W, EXIT_RADIUS, RISE, cellToWorldX, cellToWorldZ } from '../game/config.js';
 import { player, world } from '../game/runtime.js';
 import { useGame } from '../game/store.js';
 import { winChord } from '../game/audio.js';
@@ -26,7 +26,7 @@ export default function ExitDoor({ level, active }) {
 
   const pos = useMemo(() => {
     const c = level.exitCell;
-    return [cellToWorldX(c % GRID_W), cellToWorldZ((c / GRID_W) | 0), level.heights[c] * LEVEL_STEP];
+    return [cellToWorldX(c % GRID_W), cellToWorldZ((c / GRID_W) | 0), level.heights[c] * RISE];
   }, [level]);
 
   const built = useMemo(() => {
@@ -95,7 +95,7 @@ export default function ExitDoor({ level, active }) {
   return (
     <group ref={groupRef} position={[pos[0], pos[2], pos[1]]}>
       <mesh ref={glowRef} geometry={built.glowGeo} material={built.glowMat} position={[0, 1.16, -0.04]} />
-      <mesh geometry={built.doorGeo} material={built.doorMat} position={[0, 1.08, 0]} />
+      <mesh geometry={built.doorGeo} material={built.doorMat} position={[0, 1.08, 0]} castShadow receiveShadow />
       <mesh geometry={built.signGeo} material={built.signMat} position={[0, 2.5, 0.02]} />
       <mesh geometry={built.signGeo} material={built.signMat} position={[0, 2.5, -0.02]} rotation={[0, Math.PI, 0]} />
       <pointLight ref={lightRef} position={[0, 2.1, 0]} intensity={2} distance={7} decay={1.6} color={0x66ffaa} />

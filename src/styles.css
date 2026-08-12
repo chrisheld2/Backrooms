@@ -55,6 +55,49 @@ canvas { display: block; outline: none; touch-action: none; cursor: crosshair; }
   box-shadow: 0 0 4px rgba(0,0,0,0.9);
 }
 
+.minimap {
+  position: absolute;
+  top: 22px;
+  right: 24px;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: rgba(10, 9, 6, 0.35);
+  border: 1px solid rgba(216, 207, 154, 0.35);
+  box-shadow: 0 0 14px rgba(0,0,0,0.6);
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  opacity: 0.9;
+}
+
+.minimap-hidden { opacity: 0; }
+
+.minimap canvas { display: block; }
+
+.minimap-hint {
+  position: absolute;
+  bottom: 4px;
+  right: 8px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--amber-dim);
+  text-shadow: 0 0 6px rgba(0,0,0,0.9);
+}
+
+.hud-top-left {
+  position: absolute;
+  top: 22px;
+  left: 24px;
+}
+
+.hud-fps {
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  color: var(--amber-dim);
+  text-shadow: 0 0 8px rgba(0,0,0,0.9);
+}
+
 .hud-top {
   position: absolute;
   top: 22px;

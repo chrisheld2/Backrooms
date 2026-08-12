@@ -151,6 +151,11 @@ function VisualEffectsPanel({ settings, onChange, onReset }) {
       <span>{label}</span><output>{Math.round(settings[key] * 100)}%</output>
       <input type="range" min="0" max="1" step="0.01" value={settings[key]} onChange={(event) => onChange(key, Number(event.target.value))} />
     </label>)}</div>
+    <h4 className="effects-section-title">Lighting</h4>
+    <label className="effect-control effect-toggle">
+      <span>Real-Time Shadows</span>
+      <input type="checkbox" checked={settings.realTimeShadows} onChange={(event) => onChange('realTimeShadows', event.target.checked)} />
+    </label>
     <h4 className="effects-section-title">Analog VCR</h4>
     <label className="effect-control effect-toggle">
       <span>Dynamic variation</span>

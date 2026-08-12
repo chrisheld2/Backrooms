@@ -8,6 +8,7 @@ import { disposeTextures } from './game/textures.js';
 import World from './components/World.jsx';
 import VisualEffects from './components/VisualEffects.jsx';
 import Hud from './ui/Hud.jsx';
+import Minimap from './ui/Minimap.jsx';
 import Overlays from './ui/Overlays.jsx';
 
 /**
@@ -29,7 +30,20 @@ export default function App() {
   const visualEffects = useGame((s) => s.visualEffects);
 
   const canvasRef = useRef(null);
+  const glRef = useRef(null);
   const playing = phase === 'playing';
+  const realTimeShadows = visualEffects.realTimeShadows;
+
+  // Toggling mid-run must not require a Canvas remount: flip the renderer's
+  // shadow pass in place. `shadows={false}` on <Canvas> only configures the
+  // pass at creation, so the live flag lives here instead.
+  useEffect(() => {
+    const gl = glRef.current;
+    if (!gl) return;
+    gl.shadowMap.enabled = realTimeShadows;
+    gl.shadowMap.type = THREE.PCFSoftShadowMap;
+    gl.shadowMap.needsUpdate = true;
+  }, [realTimeShadows]);
 
   const requestLock = useCallback(() => {
     resumeAudio();
@@ -113,10 +127,13 @@ export default function App() {
         }}
         camera={{ fov: 74, near: 0.05, far: 55 }}
         onCreated={({ gl, scene }) => {
+          glRef.current = gl;
           gl.setClearColor(FOG_COLOR, 1);
           gl.toneMapping = THREE.ACESFilmicToneMapping;
           gl.toneMappingExposure = 1.15;
           scene.matrixWorldAutoUpdate = true;
+          gl.shadowMap.enabled = realTimeShadows;
+          gl.shadowMap.type = THREE.PCFSoftShadowMap;
         }}
         onPointerDown={() => { if (!playing) return; requestLock(); }}
       >
@@ -125,6 +142,7 @@ export default function App() {
       </Canvas>
 
       <Hud />
+      <Minimap />
       <Overlays onRequestLock={requestLock} />
     </div>
   );

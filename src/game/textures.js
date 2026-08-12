@@ -299,6 +299,34 @@ function buildCeilingAtlas(rng) {
 }
 
 /**
+ * Poured concrete: stair treads, ramps and the whole maintenance stratum.
+ *
+ * Kept coarse and cold on purpose. It is the one surface in the level that is
+ * not office finish, so it has to carry the read that the player has left the
+ * floor the building meant them to be on.
+ */
+function buildConcrete(rng) {
+  const ctx = canvas2d();
+  ctx.fillStyle = '#6c6a61';
+  ctx.fillRect(0, 0, SIZE, SIZE);
+
+  // Exposed aggregate.
+  for (let i = 0; i < 4200; i++) {
+    const x = rng() * SIZE;
+    const y = rng() * SIZE;
+    const v = 84 + ((rng() * 74) | 0);
+    ctx.fillStyle = `rgba(${v},${v - 3},${v - 11},${(0.14 + rng() * 0.34).toFixed(2)})`;
+    ctx.fillRect(x, y, 1 + rng() * 1.7, 1 + rng() * 1.7);
+  }
+
+  // Damp bloom and the pale bloom of efflorescence.
+  stains(ctx, rng, 5, 'rgba(38,38,36,0.22)', 44);
+  stains(ctx, rng, 3, 'rgba(150,148,136,0.16)', 28);
+  grain(ctx, 18, rng);
+  return ctx;
+}
+
+/**
  * @param {number} maxAnisotropy from `gl.capabilities.getMaxAnisotropy()`
  */
 export function getTextures(maxAnisotropy) {
@@ -309,6 +337,7 @@ export function getTextures(maxAnisotropy) {
     wall: buildWallpaper(aniso),
     carpet: buildCarpetImage(aniso),
     ceiling: makeTexture(buildCeilingAtlas(rng), 1 / CEIL_ATLAS_N, aniso),
+    hard: makeTexture(buildConcrete(rng), 1, aniso),
   };
   return _cache;
 }

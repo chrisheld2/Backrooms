@@ -20,6 +20,7 @@ export const DEFAULT_VISUAL_EFFECTS = {
   vcrJitter: 0.5,
   vcrTear: 0.3,
   vcrDynamic: false,
+  realTimeShadows: false,
 };
 
 function clampVolume(value) {
